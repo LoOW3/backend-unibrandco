@@ -1,1 +1,172 @@
 # backend-unibrandco
+
+Backend infrastructure for Unibrandco — Patagonia WMS stock sync to S3.
+
+## Architecture
+
+- **EventBridge** triggers a Lambda every 30 minutes between **06:30** and **19:30** Argentina time (UTC-3) to fetch stock from Patagonia WMS and save JSON snapshots to S3.
+- **HTTP API** (`POST /stock/sync`) allows manual sync on demand, protected by Cognito JWT (ADMIN group only).
+- Snapshots are stored at `yyyy/mm/dd/HHmmss.json` (UTC) in a private S3 bucket.
+- **S3 ObjectCreated** triggers a diff Lambda that compares each new snapshot with the previous one and stores `UnidadesDisponibles` changes in DynamoDB.
+
+## Stock diff flow
+
+After every sync (scheduled or manual):
+
+1. A new snapshot is written to S3.
+2. The diff Lambda loads the current and previous snapshots.
+3. Items with changed `UnidadesDisponibles` are saved to DynamoDB table `stock-availability-changes`.
+
+Change rules:
+
+| Case | Stored object |
+|------|---------------|
+| Changed availability | Current item + `previousUnidadesDisponibles` |
+| New article | Current item + `"new": true` |
+| Removed article | Previous item + `"deleted": true` |
+
+Example DynamoDB item:
+
+```json
+{
+  "pk": "SYNC#2025/05/30/153000.json",
+  "syncedAt": "2025-05-30T15:30:00.000Z",
+  "currentSyncKey": "2025/05/30/153000.json",
+  "previousSyncKey": "2025/05/30/150000.json",
+  "changedCount": 2,
+  "changedItems": [
+    {
+      "CodigoArticulo": "AN03027",
+      "UnidadesDisponibles": 10,
+      "previousUnidadesDisponibles": 4
+    },
+    {
+      "CodigoArticulo": "XX99999",
+      "UnidadesDisponibles": 5,
+      "new": true
+    }
+  ]
+}
+```
+
+Query a diff record:
+
+```bash
+aws dynamodb get-item \
+  --table-name stock-availability-changes \
+  --key '{"pk":{"S":"SYNC#2025/05/30/153000.json"}}' \
+  --region us-east-1
+```
+
+## Prerequisites
+
+- Node.js 20+
+- AWS CLI configured
+- AWS CDK bootstrapped in `us-east-1`
+
+## Deploy
+
+```bash
+cd cdk
+npm install
+npm run build
+npx cdk bootstrap aws://YOUR_ACCOUNT_ID/us-east-1   # first time only
+npx cdk deploy
+```
+
+## Post-deploy setup
+
+### 1. Set Patagonia WMS API key
+
+After deploy, replace the placeholder secret value:
+
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id patagonia-wms/api-key \
+  --secret-string 'YOUR_PATAGONIA_API_KEY' \
+  --region us-east-1
+```
+
+### 2. Create an admin user
+
+```bash
+# Create user
+aws cognito-idp admin-create-user \
+  --user-pool-id YOUR_USER_POOL_ID \
+  --username admin@example.com \
+  --user-attributes Name=email,Value=admin@example.com Name=email_verified,Value=true \
+  --temporary-password 'TempPass123!' \
+  --region us-east-1
+
+# Set permanent password
+aws cognito-idp admin-set-user-password \
+  --user-pool-id YOUR_USER_POOL_ID \
+  --username admin@example.com \
+  --password 'YourSecurePass123!' \
+  --permanent \
+  --region us-east-1
+
+# Add to ADMIN group
+aws cognito-idp admin-add-user-to-group \
+  --user-pool-id YOUR_USER_POOL_ID \
+  --username admin@example.com \
+  --group-name ADMIN \
+  --region us-east-1
+```
+
+### 3. Get JWT token (for manual sync)
+
+```bash
+aws cognito-idp initiate-auth \
+  --client-id YOUR_USER_POOL_CLIENT_ID \
+  --auth-flow USER_PASSWORD_AUTH \
+  --auth-parameters USERNAME=admin@example.com,PASSWORD='YourSecurePass123!' \
+  --region us-east-1
+```
+
+Use the `IdToken` from the response.
+
+### 4. Trigger manual sync
+
+```bash
+curl -X POST https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/stock/sync \
+  -H "Authorization: Bearer YOUR_ID_TOKEN"
+```
+
+Response example:
+
+```json
+{
+  "s3Key": "2025/05/30/151200.json",
+  "itemCount": 150,
+  "syncedAt": "2025-05-30T15:12:00.000Z"
+}
+```
+
+## Tests
+
+```bash
+cd cdk
+npm test
+```
+
+## Stack outputs
+
+| Output | Description |
+|--------|-------------|
+| `UserPoolId` | Cognito User Pool ID |
+| `UserPoolClientId` | Cognito App Client ID |
+| `StockBucketName` | S3 bucket for snapshots |
+| `StockSyncApiUrl` | Manual sync endpoint |
+| `PatagoniaApiKeySecretArn` | Secrets Manager ARN for API key |
+| `StockChangesTableName` | DynamoDB table for availability diffs |
+
+## Project structure
+
+```
+cdk/src/shared/                 # Shared types (PatagoniaStockItem)
+cdk/src/lambdas/stock-sync/    # Sync Lambda
+cdk/src/lambdas/stock-diff/    # Diff Lambda (S3 trigger → DynamoDB)
+cdk/lib/constructs/            # CDK constructs (Auth, StockSync)
+cdk/lib/cdk-stack.ts           # Main stack
+```

@@ -8,6 +8,7 @@ Backend infrastructure for Unibrandco — Patagonia WMS stock sync to S3.
 - **HTTP API** (`POST /stock/sync`) allows manual sync on demand, protected by Cognito JWT (ADMIN group only).
 - Snapshots are stored at `yyyy/mm/dd/HHmmss.json` (UTC) in a private S3 bucket.
 - **S3 ObjectCreated** triggers a diff Lambda that compares each new snapshot with the previous one and stores `UnidadesDisponibles` changes in DynamoDB.
+- **DynamoDB Stream** triggers a Tiendanube sync Lambda that maps changed SKUs to Tiendanube products and PATCHes stock via the Tiendanube API.
 
 ## Stock diff flow
 
@@ -55,6 +56,51 @@ Query a diff record:
 aws dynamodb get-item \
   --table-name stock-availability-changes \
   --key '{"pk":{"S":"SYNC#2025/05/30/153000.json"}}' \
+  --region us-east-1
+```
+
+## Tiendanube stock sync flow
+
+After a diff record is written to DynamoDB:
+
+1. The DynamoDB stream fires on `INSERT` events.
+2. The Tiendanube sync Lambda loads `tienda-nube-products/products-clean.json` from the same S3 bucket.
+3. For each item in `changedItems`, it matches `CodigoArticulo` to variant `sku`.
+4. It PATCHes stock to `https://api.tiendanube.com/2025-03/{store_id}/products/stock-price`.
+
+Skip rules:
+
+| Case | Action |
+|------|--------|
+| `deleted: true` | Skip |
+| SKU not in products-clean.json | Log warning, skip |
+| Matched SKU | PATCH `inventory_levels[].stock` with `UnidadesDisponibles` |
+
+### Upload products catalog to S3
+
+Generate and upload the catalog after fetching Tiendanube products:
+
+```bash
+python scripts/fetch_tiendanube_products.py
+python scripts/clean_tiendanube_products.py
+
+aws s3 cp scripts/output/products-clean.json \
+  s3://YOUR_STOCK_BUCKET/tienda-nube-products/products-clean.json \
+  --region us-east-1
+```
+
+### Set Tiendanube API credentials
+
+After deploy, replace the placeholder secret value:
+
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id tiendanube/api-credentials \
+  --secret-string '{
+    "store_id": "6835321",
+    "access_token": "YOUR_TIENDANUBE_ACCESS_TOKEN",
+    "user_agent": "Unibrandco Backend (you@example.com)"
+  }' \
   --region us-east-1
 ```
 
@@ -159,6 +205,7 @@ npm test
 | `StockBucketName` | S3 bucket for snapshots |
 | `StockSyncApiUrl` | Manual sync endpoint |
 | `PatagoniaApiKeySecretArn` | Secrets Manager ARN for API key |
+| `TiendanubeSecretArn` | Secrets Manager ARN for Tiendanube credentials |
 | `StockChangesTableName` | DynamoDB table for availability diffs |
 
 ## Project structure
@@ -167,6 +214,7 @@ npm test
 cdk/src/shared/                 # Shared types (PatagoniaStockItem)
 cdk/src/lambdas/stock-sync/    # Sync Lambda
 cdk/src/lambdas/stock-diff/    # Diff Lambda (S3 trigger → DynamoDB)
+cdk/src/lambdas/tiendanube-stock-sync/  # Tiendanube stock sync (DynamoDB stream)
 cdk/lib/constructs/            # CDK constructs (Auth, StockSync)
 cdk/lib/cdk-stack.ts           # Main stack
 ```

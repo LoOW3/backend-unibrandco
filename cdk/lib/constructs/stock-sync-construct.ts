@@ -9,6 +9,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
@@ -29,7 +30,9 @@ export class StockSyncConstruct extends Construct {
   public readonly apiKeySecret: secretsmanager.Secret;
   public readonly stockSyncFunction: NodejsFunction;
   public readonly stockDiffFunction: NodejsFunction;
+  public readonly tiendanubeStockSyncFunction: NodejsFunction;
   public readonly stockChangesTable: dynamodb.Table;
+  public readonly tiendanubeSecret: secretsmanager.Secret;
   public readonly httpApi: apigwv2.HttpApi;
 
   constructor(scope: Construct, id: string, props: StockSyncConstructProps) {
@@ -51,6 +54,18 @@ export class StockSyncConstruct extends Construct {
       secretName: 'patagonia-wms/api-key',
       description: 'Patagonia WMS API key for stock sync',
       secretStringValue: cdk.SecretValue.unsafePlainText('REPLACE_ME_AFTER_DEPLOY'),
+    });
+
+    this.tiendanubeSecret = new secretsmanager.Secret(this, 'TiendanubeApiSecret', {
+      secretName: 'tiendanube/api-credentials',
+      description: 'Tiendanube API credentials for stock sync',
+      secretStringValue: cdk.SecretValue.unsafePlainText(
+        JSON.stringify({
+          store_id: '6835321',
+          access_token: 'REPLACE_ME_AFTER_DEPLOY',
+          user_agent: 'Unibrandco Backend (ignaciodiaznanni@gmail.com)',
+        }),
+      ),
     });
 
     this.stockSyncFunction = new NodejsFunction(this, 'StockSyncFunction', {
@@ -82,6 +97,7 @@ export class StockSyncConstruct extends Construct {
         type: dynamodb.AttributeType.STRING,
       },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      stream: dynamodb.StreamViewType.NEW_IMAGE,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
@@ -110,6 +126,41 @@ export class StockSyncConstruct extends Construct {
       s3.EventType.OBJECT_CREATED,
       new s3n.LambdaDestination(this.stockDiffFunction),
       { suffix: '.json' },
+    );
+
+    this.tiendanubeStockSyncFunction = new NodejsFunction(this, 'TiendanubeStockSyncFunction', {
+      entry: path.join(__dirname, '../../src/lambdas/tiendanube-stock-sync/handler.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(120),
+      memorySize: 256,
+      depsLockFilePath: path.join(__dirname, '../../package-lock.json'),
+      environment: {
+        STOCK_BUCKET_NAME: this.stockBucket.bucketName,
+        PRODUCTS_CLEAN_S3_KEY: 'tienda-nube-products/products-clean.json',
+        TIENDANUBE_SECRET_ARN: this.tiendanubeSecret.secretArn,
+        TIENDANUBE_API_VERSION: '2025-03',
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        forceDockerBundling: false,
+      },
+    });
+
+    this.stockBucket.grantRead(this.tiendanubeStockSyncFunction);
+    this.tiendanubeSecret.grantRead(this.tiendanubeStockSyncFunction);
+
+    this.tiendanubeStockSyncFunction.addEventSource(
+      new lambdaEventSources.DynamoEventSource(this.stockChangesTable, {
+        startingPosition: lambda.StartingPosition.LATEST,
+        batchSize: 1,
+        filters: [
+          lambda.FilterCriteria.filter({
+            eventName: lambda.FilterRule.isEqual('INSERT'),
+          }),
+        ],
+      }),
     );
 
     // Argentina (UTC-3, no DST): 06:30-19:30 ART = 09:30-22:30 UTC
@@ -191,6 +242,11 @@ export class StockSyncConstruct extends Construct {
     new cdk.CfnOutput(this, 'StockChangesTableName', {
       value: this.stockChangesTable.tableName,
       description: 'DynamoDB table for UnidadesDisponibles changes between syncs',
+    });
+
+    new cdk.CfnOutput(this, 'TiendanubeSecretArn', {
+      value: this.tiendanubeSecret.secretArn,
+      description: 'Secrets Manager ARN for Tiendanube API credentials',
     });
   }
 }

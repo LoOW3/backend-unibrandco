@@ -14,9 +14,4 @@ export interface StockSyncEnv {
   PATAGONIA_API_KEY_SECRET_ARN: string;
 }
 
-/** JWT claims available from API Gateway HTTP API Cognito authorizer. */
-export interface CognitoJwtClaims {
-  sub?: string;
-  email?: string;
-  'cognito:groups'?: string | string[];
-}
+export type { CognitoJwtClaims } from '../../shared/cognito.types';

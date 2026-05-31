@@ -1,4 +1,4 @@
-import type { CognitoJwtClaims } from './types';
+import type { CognitoJwtClaims } from './cognito.types';
 
 export const ADMIN_GROUP = 'ADMIN';
 

@@ -6,7 +6,7 @@ import type {
   ScheduledEvent,
 } from 'aws-lambda';
 
-import { isAdminUser } from './admin-auth';
+import { isAdminUser } from '../../shared/admin-auth';
 import { syncStock } from './sync-stock';
 import type { CognitoJwtClaims, StockSyncEnv, StockSyncResult } from './types';
 

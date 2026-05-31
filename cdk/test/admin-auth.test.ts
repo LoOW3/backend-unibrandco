@@ -3,7 +3,7 @@ import {
   ADMIN_GROUP,
   parseCognitoGroups,
   getGroupsFromClaims,
-} from '../src/lambdas/stock-sync/admin-auth';
+} from '../src/shared/admin-auth';
 
 describe('parseCognitoGroups', () => {
   it('parses array input', () => {

@@ -9,8 +9,9 @@ function getEnv(): TiendanubeStockSyncEnv {
   const productsCleanKey = process.env.PRODUCTS_CLEAN_S3_KEY;
   const secretArn = process.env.TIENDANUBE_SECRET_ARN;
   const apiVersion = process.env.TIENDANUBE_API_VERSION ?? '2025-03';
+  const tableName = process.env.STOCK_CHANGES_TABLE_NAME;
 
-  if (!bucketName || !productsCleanKey || !secretArn) {
+  if (!bucketName || !productsCleanKey || !secretArn || !tableName) {
     throw new Error('Missing required environment variables for Tiendanube stock sync');
   }
 
@@ -19,6 +20,7 @@ function getEnv(): TiendanubeStockSyncEnv {
     PRODUCTS_CLEAN_S3_KEY: productsCleanKey,
     TIENDANUBE_SECRET_ARN: secretArn,
     TIENDANUBE_API_VERSION: apiVersion,
+    STOCK_CHANGES_TABLE_NAME: tableName,
   };
 }
 

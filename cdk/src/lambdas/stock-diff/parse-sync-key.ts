@@ -24,6 +24,39 @@ export function getDayPrefixFromSyncKey(key: string): string | undefined {
 }
 
 /**
+ * Returns the UTC calendar date (midnight) parsed from a snapshot key.
+ */
+export function getUtcDateFromSyncKey(key: string): Date | undefined {
+  const match = key.match(SYNC_KEY_PATTERN);
+
+  if (!match) {
+    return undefined;
+  }
+
+  const [, year, month, day] = match;
+
+  return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+}
+
+/**
+ * Returns the UTC cutoff date for snapshot retention (inclusive window start).
+ */
+export function buildRetentionCutoffDate(
+  now: Date,
+  retentionDays: number,
+): Date {
+  const todayStart = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  );
+  const cutoff = new Date(todayStart);
+  cutoff.setUTCDate(cutoff.getUTCDate() - (retentionDays - 1));
+
+  return cutoff;
+}
+
+/**
  * Returns [previousDayPrefix, currentDayPrefix] in UTC.
  */
 export function buildSnapshotDayPrefixes(currentSyncKey: string): string[] {

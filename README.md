@@ -10,6 +10,8 @@ Backend infrastructure for Unibrandco — Patagonia WMS stock sync to S3.
 - **EventBridge** runs a daily cleanup Lambda at **03:00 UTC** that deletes Patagonia stock snapshots older than **8 UTC calendar days**. Other bucket objects (e.g. `tienda-nube-products/products-clean.json`) are not affected.
 - **S3 ObjectCreated** triggers a diff Lambda that compares each new snapshot with the previous one and stores `UnidadesDisponibles` changes in DynamoDB.
 - **DynamoDB Stream** triggers a Tiendanube sync Lambda that maps changed SKUs to Tiendanube products and PATCHes stock via the Tiendanube API.
+- **HTTP API** (`POST /webhooks/tiendanube/order-paid`) receives Tiendanube `order/paid` webhooks, fetches the full order, and creates Patagonia pedidos in DigipWMS.
+- **DynamoDB** table `patagonia-pedidos` stores each successfully created pedido; **Admin API** exposes paginated list and get-by-`codigo` (Cognito ADMIN).
 
 ## Stock diff flow
 
@@ -89,6 +91,58 @@ aws s3 cp scripts/output/products-clean.json \
   s3://YOUR_STOCK_BUCKET/tienda-nube-products/products-clean.json \
   --region us-east-1
 ```
+
+## Tiendanube order/paid webhook
+
+When an order is marked as paid, Tiendanube POSTs to your webhook URL. The flow:
+
+1. **Webhook Lambda** validates payload, fetches the order from Tiendanube, builds a `summary` (products + `userData`).
+2. Returns **HTTP 200** with that summary in the response body (same as the second CloudWatch log).
+3. **Async-invokes** `PatagoniaCreatePedidoFunction` with `{ action, summary }`.
+4. **Patagonia Lambda** maps `summary` to DigipWMS `CreatePedido` and `POST`s to `https://api.v2.digipwms.com/api/v2/Pedidos` ([Swagger](https://api.v2.digipwms.com/swagger/index.html)).
+5. On success, the pedido is written to DynamoDB table `patagonia-pedidos` (`pk`: `PEDIDO#{orderId}TN`). Failed POSTs are not stored.
+
+Admin API (JWT + `ADMIN` group):
+
+- `GET /admin/patagonia-pedidos?limit=&cursor=` — paginated list (newest first)
+- `GET /admin/patagonia-pedidos/{codigo}` — full record (`summary` + `createPedido`)
+
+See [docs/admin-api-integration.md](docs/admin-api-integration.md) sections 7–8.
+
+Patagonia pedido mapping:
+
+| Field | Source |
+|-------|--------|
+| `codigo` | `{orderId}TN` (idempotent per Tiendanube order) |
+| `clienteUbicacionCodigo` | `8436326823` (fixed) |
+| `fecha` | ISO 8601 `date-time` at processing time |
+| `estado` | `Pendiente` |
+| `observacion` | `userData` as text (max 280 chars) |
+| `items[].articuloCodigo` | product `sku` |
+| `items[].unidades` | product `quantity` |
+
+Uses the same `patagonia-wms/api-key` secret (`X-API-Key`) as stock sync; pedidos use API **v2**, stock uses **v1**.
+
+Events other than `order/paid` return `200 { received: true, skipped: true }` and do not call Patagonia.
+
+**Security (MVP):** the webhook route is public (no Cognito, no HMAC). Anyone who knows the URL could trigger order fetches. Do not share the URL; consider adding a path token or Partners app `client_secret` + HMAC later.
+
+### Register the webhook in Tiendanube
+
+After deploy, use the stack output `TiendanubeOrderPaidWebhookUrl`:
+
+```bash
+curl -X POST "https://api.tiendanube.com/2025-03/YOUR_STORE_ID/webhooks" \
+  -H "Authorization: Bearer YOUR_TIENDANUBE_ACCESS_TOKEN" \
+  -H "User-Agent: Unibrandco Backend (you@example.com)" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": "order/paid",
+    "url": "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/webhooks/tiendanube/order-paid"
+  }'
+```
+
+Requires `read_orders` (or `write_orders`) scope on your access token.
 
 ### Set Tiendanube API credentials
 
@@ -207,15 +261,20 @@ npm test
 | `StockSyncApiUrl` | Manual sync endpoint |
 | `PatagoniaApiKeySecretArn` | Secrets Manager ARN for API key |
 | `TiendanubeSecretArn` | Secrets Manager ARN for Tiendanube credentials |
+| `TiendanubeOrderPaidWebhookUrl` | Public URL to register for `order/paid` webhooks |
 | `StockChangesTableName` | DynamoDB table for availability diffs |
+| `PatagoniaPedidosTableName` | DynamoDB table for Tiendanube orders sent to Patagonia |
 
 ## Project structure
 
 ```
-cdk/src/shared/                 # Shared types (PatagoniaStockItem)
+cdk/src/shared/                 # Shared types and Tiendanube API helpers
 cdk/src/lambdas/stock-sync/    # Sync Lambda
 cdk/src/lambdas/stock-diff/    # Diff Lambda (S3 trigger → DynamoDB)
 cdk/src/lambdas/tiendanube-stock-sync/  # Tiendanube stock sync (DynamoDB stream)
+cdk/src/lambdas/tiendanube-order-paid-webhook/  # order/paid webhook → summary + invoke Patagonia
+cdk/src/lambdas/patagonia-create-pedido/       # POST DigipWMS /api/v2/Pedidos → DynamoDB
+cdk/src/lambdas/admin-api/                    # Admin dashboard, stock changes, patagonia pedidos
 cdk/lib/constructs/            # CDK constructs (Auth, StockSync)
 cdk/lib/cdk-stack.ts           # Main stack
 ```

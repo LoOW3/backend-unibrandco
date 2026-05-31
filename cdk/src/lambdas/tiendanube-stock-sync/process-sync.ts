@@ -1,4 +1,4 @@
-import { getTiendanubeConfig } from './get-tiendanube-config';
+import { getTiendanubeConfig } from '../../shared/get-tiendanube-config';
 import { buildPatchedItems } from './build-patched-items';
 import { buildStockPatch } from './build-stock-patch';
 import { loadProductsCatalog } from './load-products-catalog';

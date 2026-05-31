@@ -3,6 +3,8 @@ export interface AdminApiEnv {
   STOCK_CHANGES_TABLE_NAME: string;
   STOCK_BUCKET_NAME: string;
   GSI_NAME: string;
+  PATAGONIA_PEDIDOS_TABLE_NAME: string;
+  PATAGONIA_PEDIDOS_GSI_NAME: string;
 }
 
 export interface AdminDashboardResponse {
@@ -56,6 +58,18 @@ export interface StockFileDownloadResponse {
   downloadUrl: string;
   expiresAt: string;
   contentType: string;
+}
+
+export interface PatagoniaPedidoListItem {
+  codigo: string;
+  tiendanubeOrderId: number;
+  createdAt: string;
+  itemCount: number;
+}
+
+export interface PaginatedPatagoniaPedidosResponse {
+  items: PatagoniaPedidoListItem[];
+  nextCursor: string | null;
 }
 
 export interface ErrorResponse {

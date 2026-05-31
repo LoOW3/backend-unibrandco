@@ -31,7 +31,10 @@ export class StockSyncConstruct extends Construct {
   public readonly stockSyncFunction: NodejsFunction;
   public readonly stockDiffFunction: NodejsFunction;
   public readonly tiendanubeStockSyncFunction: NodejsFunction;
+  public readonly tiendanubeOrderPaidWebhookFunction: NodejsFunction;
+  public readonly patagoniaCreatePedidoFunction: NodejsFunction;
   public readonly stockChangesTable: dynamodb.Table;
+  public readonly patagoniaPedidosTable: dynamodb.Table;
   public readonly adminApiFunction: NodejsFunction;
   public readonly stockCleanupFunction: NodejsFunction;
   public readonly tiendanubeSecret: secretsmanager.Secret;
@@ -116,6 +119,29 @@ export class StockSyncConstruct extends Construct {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    this.patagoniaPedidosTable = new dynamodb.Table(this, 'PatagoniaPedidosTable', {
+      tableName: 'patagonia-pedidos',
+      partitionKey: {
+        name: 'pk',
+        type: dynamodb.AttributeType.STRING,
+      },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    this.patagoniaPedidosTable.addGlobalSecondaryIndex({
+      indexName: 'byCreatedAt',
+      partitionKey: {
+        name: 'recordType',
+        type: dynamodb.AttributeType.STRING,
+      },
+      sortKey: {
+        name: 'createdAt',
+        type: dynamodb.AttributeType.STRING,
+      },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     this.stockDiffFunction = new NodejsFunction(this, 'StockDiffFunction', {
       entry: path.join(__dirname, '../../src/lambdas/stock-diff/handler.ts'),
       handler: 'handler',
@@ -167,6 +193,68 @@ export class StockSyncConstruct extends Construct {
     this.stockBucket.grantRead(this.tiendanubeStockSyncFunction);
     this.tiendanubeSecret.grantRead(this.tiendanubeStockSyncFunction);
     this.stockChangesTable.grantReadWriteData(this.tiendanubeStockSyncFunction);
+
+    this.patagoniaCreatePedidoFunction = new NodejsFunction(
+      this,
+      'PatagoniaCreatePedidoFunction',
+      {
+        entry: path.join(
+          __dirname,
+          '../../src/lambdas/patagonia-create-pedido/handler.ts',
+        ),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        timeout: cdk.Duration.seconds(30),
+        memorySize: 256,
+        depsLockFilePath: path.join(__dirname, '../../package-lock.json'),
+        environment: {
+          PATAGONIA_PEDIDOS_API_URL: 'https://api.v2.digipwms.com/api/v2/Pedidos',
+          PATAGONIA_API_KEY_SECRET_ARN: this.apiKeySecret.secretArn,
+          CLIENTE_UBICACION_CODIGO: '8436326823',
+          PATAGONIA_PEDIDOS_TABLE_NAME: this.patagoniaPedidosTable.tableName,
+        },
+        bundling: {
+          minify: true,
+          sourceMap: true,
+          forceDockerBundling: false,
+        },
+      },
+    );
+
+    this.apiKeySecret.grantRead(this.patagoniaCreatePedidoFunction);
+    this.patagoniaPedidosTable.grantWriteData(this.patagoniaCreatePedidoFunction);
+
+    this.tiendanubeOrderPaidWebhookFunction = new NodejsFunction(
+      this,
+      'TiendanubeOrderPaidWebhookFunction',
+      {
+        entry: path.join(
+          __dirname,
+          '../../src/lambdas/tiendanube-order-paid-webhook/handler.ts',
+        ),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        timeout: cdk.Duration.seconds(10),
+        memorySize: 256,
+        depsLockFilePath: path.join(__dirname, '../../package-lock.json'),
+        environment: {
+          TIENDANUBE_SECRET_ARN: this.tiendanubeSecret.secretArn,
+          TIENDANUBE_API_VERSION: '2025-03',
+          PATAGONIA_CREATE_PEDIDO_FUNCTION_NAME:
+            this.patagoniaCreatePedidoFunction.functionName,
+        },
+        bundling: {
+          minify: true,
+          sourceMap: true,
+          forceDockerBundling: false,
+        },
+      },
+    );
+
+    this.tiendanubeSecret.grantRead(this.tiendanubeOrderPaidWebhookFunction);
+    this.patagoniaCreatePedidoFunction.grantInvoke(
+      this.tiendanubeOrderPaidWebhookFunction,
+    );
 
     this.tiendanubeStockSyncFunction.addEventSource(
       new lambdaEventSources.DynamoEventSource(this.stockChangesTable, {
@@ -281,6 +369,8 @@ export class StockSyncConstruct extends Construct {
         STOCK_CHANGES_TABLE_NAME: this.stockChangesTable.tableName,
         STOCK_BUCKET_NAME: this.stockBucket.bucketName,
         GSI_NAME: 'byCreatedAt',
+        PATAGONIA_PEDIDOS_TABLE_NAME: this.patagoniaPedidosTable.tableName,
+        PATAGONIA_PEDIDOS_GSI_NAME: 'byCreatedAt',
       },
       bundling: {
         minify: true,
@@ -290,6 +380,7 @@ export class StockSyncConstruct extends Construct {
     });
 
     this.stockChangesTable.grantReadData(this.adminApiFunction);
+    this.patagoniaPedidosTable.grantReadData(this.adminApiFunction);
     this.stockBucket.grantRead(this.adminApiFunction);
 
     const adminApiIntegration = new apigwv2Integrations.HttpLambdaIntegration(
@@ -342,6 +433,29 @@ export class StockSyncConstruct extends Construct {
       authorizer,
     });
 
+    this.httpApi.addRoutes({
+      path: '/admin/patagonia-pedidos',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/patagonia-pedidos/{codigo+}',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/webhooks/tiendanube/order-paid',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2Integrations.HttpLambdaIntegration(
+        'TiendanubeOrderPaidWebhookIntegration',
+        this.tiendanubeOrderPaidWebhookFunction,
+      ),
+    });
+
     new cdk.CfnOutput(this, 'StockBucketName', {
       value: this.stockBucket.bucketName,
       description: 'S3 bucket for Patagonia stock snapshots',
@@ -367,9 +481,20 @@ export class StockSyncConstruct extends Construct {
       description: 'DynamoDB table for UnidadesDisponibles changes between syncs',
     });
 
+    new cdk.CfnOutput(this, 'PatagoniaPedidosTableName', {
+      value: this.patagoniaPedidosTable.tableName,
+      description: 'DynamoDB table for Tiendanube orders sent to Patagonia DigipWMS',
+    });
+
     new cdk.CfnOutput(this, 'TiendanubeSecretArn', {
       value: this.tiendanubeSecret.secretArn,
       description: 'Secrets Manager ARN for Tiendanube API credentials',
+    });
+
+    new cdk.CfnOutput(this, 'TiendanubeOrderPaidWebhookUrl', {
+      value: `${this.httpApi.apiEndpoint}/webhooks/tiendanube/order-paid`,
+      description:
+        'Public Tiendanube order/paid webhook URL (POST, no auth — register in Tiendanube)',
     });
   }
 }

@@ -4,7 +4,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
-    "test": "jest",
+    "test": "npm run build && jest",
     "cdk": "cdk"
   },
   "devDependencies": {
@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.826.0",
+    "@aws-sdk/client-lambda": "^3.826.0",
     "@aws-sdk/client-s3": "^3.826.0",
     "@aws-sdk/s3-request-presigner": "^3.826.0",
     "@aws-sdk/client-secrets-manager": "^3.826.0",

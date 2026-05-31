@@ -295,6 +295,73 @@ Use `downloadUrl` immediately — it expires in **5 minutes**. Auth is required 
 
 ---
 
+### 7. List Patagonia pedidos (Tiendanube → DigipWMS)
+
+Paginated list of orders successfully sent to Patagonia WMS after Tiendanube `order/paid`, newest first.
+
+```http
+GET /admin/patagonia-pedidos?limit=20&cursor=<optional>
+Authorization: Bearer <IdToken>
+```
+
+**Query parameters:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `limit` | number | no | Page size (default `20`, max `100`) |
+| `cursor` | string | no | Opaque cursor from previous `nextCursor` |
+
+**Response `200`:**
+
+```json
+{
+  "items": [
+    {
+      "codigo": "1983713089TN",
+      "tiendanubeOrderId": 1983713089,
+      "createdAt": "2026-05-31T12:00:00.000Z",
+      "itemCount": 1
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+Use `nextCursor` in the next request as `?cursor=...` until it is `null`.
+
+---
+
+### 8. Get Patagonia pedido by codigo
+
+Returns the full stored record (Tiendanube `summary` + DigipWMS `createPedido` body).
+
+```http
+GET /admin/patagonia-pedidos/{codigo}
+Authorization: Bearer <IdToken>
+```
+
+**Path parameter:**
+
+- `codigo`: DigipWMS order code, e.g. `1983713089TN` (`{tiendanubeOrderId}TN`)
+
+Example:
+
+```http
+GET /admin/patagonia-pedidos/1983713089TN
+```
+
+**Response `200`:** full `PatagoniaPedidoRecord` (includes `summary`, `createPedido`, `pk`, `createdAt`, etc.).
+
+**Response `404`:**
+
+```json
+{
+  "message": "Patagonia pedido record not found"
+}
+```
+
+---
+
 ## Suggested TypeScript types
 
 ```typescript
@@ -349,6 +416,30 @@ export interface StockFileDownloadResponse {
   downloadUrl: string;
   expiresAt: string;
   contentType: string;
+}
+
+export interface PatagoniaPedidoListItem {
+  codigo: string;
+  tiendanubeOrderId: number;
+  createdAt: string;
+  itemCount: number;
+}
+
+export interface PaginatedPatagoniaPedidosResponse {
+  items: PatagoniaPedidoListItem[];
+  nextCursor: string | null;
+}
+
+/** Full record from GET /admin/patagonia-pedidos/{codigo} */
+export interface PatagoniaPedidoRecord {
+  pk: string;
+  recordType: 'patagonia-pedido';
+  createdAt: string;
+  codigo: string;
+  tiendanubeOrderId: number;
+  itemCount: number;
+  summary: OrderProductsSummary;
+  createPedido: PatagoniaCreatePedido;
 }
 ```
 
@@ -420,6 +511,36 @@ export async function downloadStockFile(idToken: string, syncKey: string) {
 
   window.open(downloadUrl, '_blank', 'noopener,noreferrer');
 }
+
+export async function listPatagoniaPedidos(
+  idToken: string,
+  params?: { limit?: number; cursor?: string | null },
+) {
+  const searchParams = new URLSearchParams();
+
+  if (params?.limit) {
+    searchParams.set('limit', String(params.limit));
+  }
+
+  if (params?.cursor) {
+    searchParams.set('cursor', params.cursor);
+  }
+
+  const query = searchParams.toString();
+  const path = query
+    ? `/admin/patagonia-pedidos?${query}`
+    : '/admin/patagonia-pedidos';
+
+  return adminFetch<PaginatedPatagoniaPedidosResponse>(path, idToken);
+}
+
+export async function getPatagoniaPedido(idToken: string, codigo: string) {
+  const encoded = encodeURIComponent(codigo);
+  return adminFetch<PatagoniaPedidoRecord>(
+    `/admin/patagonia-pedidos/${encoded}`,
+    idToken,
+  );
+}
 ```
 
 ## Recommended dashboard flow
@@ -432,6 +553,8 @@ export async function downloadStockFile(idToken: string, syncKey: string) {
 6. Browse Patagonia snapshots by day with `GET /admin/stock-files?date=YYYY-MM-DD`.
 7. Download a snapshot with `GET /admin/stock-files/download?syncKey=...`, then open `downloadUrl`.
 8. Trigger manual sync with `POST /stock/sync`, then refresh dashboard after pipeline completion.
+9. List Tiendanube→Patagonia pedidos with `GET /admin/patagonia-pedidos` (paginate with `nextCursor`).
+10. Open pedido detail with `GET /admin/patagonia-pedidos/{codigo}` (e.g. `1983713089TN`).
 
 ## Notes
 

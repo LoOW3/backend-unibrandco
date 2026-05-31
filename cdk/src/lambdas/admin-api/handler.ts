@@ -5,9 +5,11 @@ import {
   getStockFileDownload,
   StockFileDownloadError,
 } from './get-stock-file-download';
+import { getPatagoniaPedido } from './get-patagonia-pedido';
 import { getStockChange } from './get-stock-change';
 import { jsonResponse } from './http-response';
 import { isValidDateParam, listStockFiles } from './list-stock-files';
+import { listPatagoniaPedidos } from './list-patagonia-pedidos';
 import { listStockChanges } from './list-stock-changes';
 import { isAuthorizedAdmin, type HttpApiEventWithJwt } from './require-admin';
 import type { AdminApiEnv } from './types';
@@ -16,8 +18,10 @@ function getEnv(): AdminApiEnv {
   const tableName = process.env.STOCK_CHANGES_TABLE_NAME;
   const bucketName = process.env.STOCK_BUCKET_NAME;
   const gsiName = process.env.GSI_NAME;
+  const patagoniaPedidosTableName = process.env.PATAGONIA_PEDIDOS_TABLE_NAME;
+  const patagoniaPedidosGsiName = process.env.PATAGONIA_PEDIDOS_GSI_NAME;
 
-  if (!tableName || !bucketName || !gsiName) {
+  if (!tableName || !bucketName || !gsiName || !patagoniaPedidosTableName || !patagoniaPedidosGsiName) {
     throw new Error('Missing required environment variables for admin API');
   }
 
@@ -25,6 +29,8 @@ function getEnv(): AdminApiEnv {
     STOCK_CHANGES_TABLE_NAME: tableName,
     STOCK_BUCKET_NAME: bucketName,
     GSI_NAME: gsiName,
+    PATAGONIA_PEDIDOS_TABLE_NAME: patagoniaPedidosTableName,
+    PATAGONIA_PEDIDOS_GSI_NAME: patagoniaPedidosGsiName,
   };
 }
 
@@ -106,6 +112,30 @@ export async function handler(
 
       const files = await listStockFiles(env, date);
       return jsonResponse(200, files);
+    }
+
+    if (method === 'GET' && path === '/admin/patagonia-pedidos') {
+      const result = await listPatagoniaPedidos(env, httpEvent.queryStringParameters ?? {});
+      return jsonResponse(200, result);
+    }
+
+    if (method === 'GET' && path.startsWith('/admin/patagonia-pedidos/')) {
+      const codigoParam = httpEvent.pathParameters?.codigo;
+      const codigo = decodeURIComponent(
+        codigoParam ?? path.slice('/admin/patagonia-pedidos/'.length),
+      );
+
+      if (!codigo) {
+        return jsonResponse(400, { message: 'Missing codigo' });
+      }
+
+      const record = await getPatagoniaPedido(env, codigo);
+
+      if (!record) {
+        return jsonResponse(404, { message: 'Patagonia pedido record not found' });
+      }
+
+      return jsonResponse(200, record);
     }
 
     return jsonResponse(404, { message: 'Not found' });

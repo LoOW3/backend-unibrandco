@@ -3,7 +3,7 @@ import {
   SecretsManagerClient,
 } from '@aws-sdk/client-secrets-manager';
 
-import type { TiendanubeConfig } from '../../shared/tiendanube.types';
+import type { TiendanubeConfig } from './tiendanube.types';
 
 let cachedConfig: TiendanubeConfig | undefined;
 

@@ -2,6 +2,7 @@ import type { PatagoniaStockItem, StockChangeItem } from '../src/shared/patagoni
 import {
   buildStockPatch,
   chunkPatchItems,
+  countPatchVariants,
 } from '../src/lambdas/tiendanube-stock-sync/build-stock-patch';
 import type { SkuMapping } from '../src/shared/tiendanube.types';
 
@@ -114,7 +115,7 @@ describe('buildStockPatch', () => {
 });
 
 describe('chunkPatchItems', () => {
-  it('splits patch items into fixed-size chunks', () => {
+  it('splits patch items by max variants per chunk', () => {
     const patchItems = Array.from({ length: 5 }, (_, index) => ({
       id: index + 1,
       variants: [{ id: index + 100, inventory_levels: [{ stock: index }] }],
@@ -125,5 +126,18 @@ describe('chunkPatchItems', () => {
       patchItems.slice(2, 4),
       patchItems.slice(4, 5),
     ]);
+  });
+
+  it('starts a new chunk when variants would exceed the limit', () => {
+    const patchItems = Array.from({ length: 51 }, (_, index) => ({
+      id: index + 1,
+      variants: [{ id: index + 100, inventory_levels: [{ stock: index }] }],
+    }));
+
+    const chunks = chunkPatchItems(patchItems, 50);
+
+    expect(chunks).toHaveLength(2);
+    expect(countPatchVariants(chunks[0] ?? [])).toBe(50);
+    expect(countPatchVariants(chunks[1] ?? [])).toBe(1);
   });
 });

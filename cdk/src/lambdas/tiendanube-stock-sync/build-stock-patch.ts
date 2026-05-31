@@ -57,15 +57,60 @@ export function buildStockPatch(
   };
 }
 
-/** Splits patch items into fixed-size chunks for API requests. */
+/** Counts variants across patch products. */
+export function countPatchVariants(
+  patchItems: TiendanubeStockPatchItem[],
+): number {
+  return patchItems.reduce(
+    (total, product) => total + product.variants.length,
+    0,
+  );
+}
+
+/** Splits patch items so each chunk has at most maxVariants variants. */
 export function chunkPatchItems(
   patchItems: TiendanubeStockPatchItem[],
-  chunkSize: number,
+  maxVariants: number,
 ): TiendanubeStockPatchItem[][] {
   const chunks: TiendanubeStockPatchItem[][] = [];
+  let currentChunk: TiendanubeStockPatchItem[] = [];
+  let currentVariantCount = 0;
 
-  for (let index = 0; index < patchItems.length; index += chunkSize) {
-    chunks.push(patchItems.slice(index, index + chunkSize));
+  for (const product of patchItems) {
+    const productVariantCount = product.variants.length;
+
+    if (productVariantCount > maxVariants) {
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk);
+        currentChunk = [];
+        currentVariantCount = 0;
+      }
+
+      for (let index = 0; index < productVariantCount; index += maxVariants) {
+        chunks.push([
+          {
+            id: product.id,
+            variants: product.variants.slice(index, index + maxVariants),
+          },
+        ]);
+      }
+
+      continue;
+    }
+
+    if (currentVariantCount + productVariantCount > maxVariants) {
+      chunks.push(currentChunk);
+      currentChunk = [product];
+      currentVariantCount = productVariantCount;
+      continue;
+    }
+
+    currentChunk.push(product);
+    currentVariantCount += productVariantCount;
+  }
+
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
   }
 
   return chunks;

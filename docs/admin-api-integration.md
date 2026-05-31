@@ -313,6 +313,14 @@ Authorization: Bearer <IdToken>
 
 **Response `200`:**
 
+Each item always includes `status` (`pending` | `shipped`). `fulfillmentStatus` and `shippedAt` appear only after Digip `Pedido_Completo` and Tiendanube fulfillment `DISPATCHED` (see README). `status` is derived from stored fields; no DynamoDB migration is required.
+
+| Field | Type | Always | Meaning |
+|-------|------|--------|---------|
+| `status` | `'pending' \| 'shipped'` | yes | `shipped` when `fulfillmentStatus === 'DISPATCHED'` |
+| `fulfillmentStatus` | `'DISPATCHED'` | no | Tiendanube fulfillment marked dispatched |
+| `shippedAt` | ISO string | no | When the record was updated after dispatch |
+
 ```json
 {
   "items": [
@@ -320,7 +328,17 @@ Authorization: Bearer <IdToken>
       "codigo": "1983713089TN",
       "tiendanubeOrderId": 1983713089,
       "createdAt": "2026-05-31T12:00:00.000Z",
-      "itemCount": 1
+      "itemCount": 1,
+      "status": "pending"
+    },
+    {
+      "codigo": "1984097529TN",
+      "tiendanubeOrderId": 1984097529,
+      "createdAt": "2026-05-31T14:00:00.000Z",
+      "itemCount": 2,
+      "status": "shipped",
+      "fulfillmentStatus": "DISPATCHED",
+      "shippedAt": "2026-05-31T15:30:00.000Z"
     }
   ],
   "nextCursor": null
@@ -350,7 +368,7 @@ Example:
 GET /admin/patagonia-pedidos/1983713089TN
 ```
 
-**Response `200`:** full `PatagoniaPedidoRecord` (includes `summary`, `createPedido`, `pk`, `createdAt`, etc.).
+**Response `200`:** full `PatagoniaPedidoRecord` plus derived `status` (includes `summary`, `createPedido`, `pk`, `createdAt`, optional `fulfillmentStatus`, `shippedAt`, etc.).
 
 **Response `404`:**
 
@@ -418,11 +436,16 @@ export interface StockFileDownloadResponse {
   contentType: string;
 }
 
+export type PatagoniaPedidoStatus = 'pending' | 'shipped';
+
 export interface PatagoniaPedidoListItem {
   codigo: string;
   tiendanubeOrderId: number;
   createdAt: string;
   itemCount: number;
+  status: PatagoniaPedidoStatus;
+  fulfillmentStatus?: 'DISPATCHED';
+  shippedAt?: string;
 }
 
 export interface PaginatedPatagoniaPedidosResponse {
@@ -440,7 +463,16 @@ export interface PatagoniaPedidoRecord {
   itemCount: number;
   summary: OrderProductsSummary;
   createPedido: PatagoniaCreatePedido;
+  fulfillmentStatus?: 'DISPATCHED';
+  shippedAt?: string;
+  tiendanubeFulfillmentIds?: string[];
+  digipCompletoAt?: string;
 }
+
+/** GET detail includes derived status (not stored in DynamoDB). */
+export type PatagoniaPedidoRecordResponse = PatagoniaPedidoRecord & {
+  status: PatagoniaPedidoStatus;
+};
 ```
 
 ## Example frontend client
@@ -555,6 +587,17 @@ export async function getPatagoniaPedido(idToken: string, codigo: string) {
 8. Trigger manual sync with `POST /stock/sync`, then refresh dashboard after pipeline completion.
 9. List Tiendanube→Patagonia pedidos with `GET /admin/patagonia-pedidos` (paginate with `nextCursor`).
 10. Open pedido detail with `GET /admin/patagonia-pedidos/{codigo}` (e.g. `1983713089TN`).
+
+## DigipWMS inbound webhook (not Admin API)
+
+DigipWMS calls your stack when an order is completed (`Pedido_Completo`). This route is **public** (no Cognito).
+
+```http
+POST /webhooks/digip/pedido-completo
+Content-Type: application/json
+```
+
+Register after deploy via Digip API (`POST /api/v2/WebHooks` with `eventType: Pedido_Completo`, `url`, `secretKey`). On `Pedido_Completo`, the stack marks Tiendanube fulfillments as `DISPATCHED` and sets `shippedAt` on the pedido record. See [README.md](../README.md) and output `DigipPedidoCompletoWebhookUrl`.
 
 ## Notes
 

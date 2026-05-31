@@ -32,6 +32,8 @@ export class StockSyncConstruct extends Construct {
   public readonly stockDiffFunction: NodejsFunction;
   public readonly tiendanubeStockSyncFunction: NodejsFunction;
   public readonly tiendanubeOrderPaidWebhookFunction: NodejsFunction;
+  public readonly digipPedidoCompletoWebhookFunction: NodejsFunction;
+  public readonly tiendanubeFulfillmentShipFunction: NodejsFunction;
   public readonly patagoniaCreatePedidoFunction: NodejsFunction;
   public readonly stockChangesTable: dynamodb.Table;
   public readonly patagoniaPedidosTable: dynamodb.Table;
@@ -256,6 +258,64 @@ export class StockSyncConstruct extends Construct {
       this.tiendanubeOrderPaidWebhookFunction,
     );
 
+    this.tiendanubeFulfillmentShipFunction = new NodejsFunction(
+      this,
+      'TiendanubeFulfillmentShipFunction',
+      {
+        entry: path.join(
+          __dirname,
+          '../../src/lambdas/tiendanube-fulfillment-ship/handler.ts',
+        ),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        timeout: cdk.Duration.seconds(30),
+        memorySize: 256,
+        depsLockFilePath: path.join(__dirname, '../../package-lock.json'),
+        environment: {
+          TIENDANUBE_SECRET_ARN: this.tiendanubeSecret.secretArn,
+          TIENDANUBE_API_VERSION: '2025-03',
+          PATAGONIA_PEDIDOS_TABLE_NAME: this.patagoniaPedidosTable.tableName,
+        },
+        bundling: {
+          minify: true,
+          sourceMap: true,
+          forceDockerBundling: false,
+        },
+      },
+    );
+
+    this.tiendanubeSecret.grantRead(this.tiendanubeFulfillmentShipFunction);
+    this.patagoniaPedidosTable.grantWriteData(this.tiendanubeFulfillmentShipFunction);
+
+    this.digipPedidoCompletoWebhookFunction = new NodejsFunction(
+      this,
+      'DigipPedidoCompletoWebhookFunction',
+      {
+        entry: path.join(
+          __dirname,
+          '../../src/lambdas/digip-pedido-completo-webhook/handler.ts',
+        ),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        timeout: cdk.Duration.seconds(10),
+        memorySize: 256,
+        depsLockFilePath: path.join(__dirname, '../../package-lock.json'),
+        environment: {
+          TIENDANUBE_FULFILLMENT_SHIP_FUNCTION_NAME:
+            this.tiendanubeFulfillmentShipFunction.functionName,
+        },
+        bundling: {
+          minify: true,
+          sourceMap: true,
+          forceDockerBundling: false,
+        },
+      },
+    );
+
+    this.tiendanubeFulfillmentShipFunction.grantInvoke(
+      this.digipPedidoCompletoWebhookFunction,
+    );
+
     this.tiendanubeStockSyncFunction.addEventSource(
       new lambdaEventSources.DynamoEventSource(this.stockChangesTable, {
         startingPosition: lambda.StartingPosition.LATEST,
@@ -456,6 +516,15 @@ export class StockSyncConstruct extends Construct {
       ),
     });
 
+    this.httpApi.addRoutes({
+      path: '/webhooks/digip/pedido-completo',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2Integrations.HttpLambdaIntegration(
+        'DigipPedidoCompletoWebhookIntegration',
+        this.digipPedidoCompletoWebhookFunction,
+      ),
+    });
+
     new cdk.CfnOutput(this, 'StockBucketName', {
       value: this.stockBucket.bucketName,
       description: 'S3 bucket for Patagonia stock snapshots',
@@ -495,6 +564,12 @@ export class StockSyncConstruct extends Construct {
       value: `${this.httpApi.apiEndpoint}/webhooks/tiendanube/order-paid`,
       description:
         'Public Tiendanube order/paid webhook URL (POST, no auth — register in Tiendanube)',
+    });
+
+    new cdk.CfnOutput(this, 'DigipPedidoCompletoWebhookUrl', {
+      value: `${this.httpApi.apiEndpoint}/webhooks/digip/pedido-completo`,
+      description:
+        'Public DigipWMS Pedido_Completo webhook URL (POST, no auth — register via POST /api/v2/WebHooks)',
     });
   }
 }

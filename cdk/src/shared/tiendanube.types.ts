@@ -82,10 +82,25 @@ export interface TiendanubeOrderContactAndBilling {
   billing_country?: string;
 }
 
+/** Tiendanube fulfillment order status values used by PATCH. */
+export type TiendanubeFulfillmentOrderStatus =
+  | 'UNPACKED'
+  | 'PACKED'
+  | 'DISPATCHED'
+  | 'READY_FOR_PICKUP'
+  | 'DELIVERED';
+
+/** Tiendanube fulfillment order (subset used by this service). */
+export interface TiendanubeFulfillmentOrder {
+  id: string;
+  status?: TiendanubeFulfillmentOrderStatus;
+}
+
 /** Tiendanube order resource (subset used by this service). */
 export interface TiendanubeOrder extends TiendanubeOrderContactAndBilling {
   id: number;
   products: TiendanubeOrderProduct[];
+  fulfillments?: string[];
   [key: string]: unknown;
 }
 

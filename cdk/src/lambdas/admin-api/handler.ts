@@ -6,6 +6,8 @@ import {
   StockFileDownloadError,
 } from './get-stock-file-download';
 import { getPatagoniaPedido } from './get-patagonia-pedido';
+import { resolvePatagoniaPedidoStatus } from '../../shared/resolve-patagonia-pedido-status';
+import type { PatagoniaPedidoRecordResponse } from '../../shared/patagonia-pedidos.types';
 import { getStockChange } from './get-stock-change';
 import { jsonResponse } from './http-response';
 import { isValidDateParam, listStockFiles } from './list-stock-files';
@@ -135,7 +137,12 @@ export async function handler(
         return jsonResponse(404, { message: 'Patagonia pedido record not found' });
       }
 
-      return jsonResponse(200, record);
+      const response: PatagoniaPedidoRecordResponse = {
+        ...record,
+        status: resolvePatagoniaPedidoStatus(record),
+      };
+
+      return jsonResponse(200, response);
     }
 
     return jsonResponse(404, { message: 'Not found' });

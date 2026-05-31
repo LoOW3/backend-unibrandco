@@ -60,11 +60,16 @@ export interface StockFileDownloadResponse {
   contentType: string;
 }
 
+export type PatagoniaPedidoStatus = 'pending' | 'shipped';
+
 export interface PatagoniaPedidoListItem {
   codigo: string;
   tiendanubeOrderId: number;
   createdAt: string;
   itemCount: number;
+  status: PatagoniaPedidoStatus;
+  fulfillmentStatus?: 'DISPATCHED';
+  shippedAt?: string;
 }
 
 export interface PaginatedPatagoniaPedidosResponse {

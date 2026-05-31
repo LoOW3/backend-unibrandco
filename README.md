@@ -144,6 +144,43 @@ curl -X POST "https://api.tiendanube.com/2025-03/YOUR_STORE_ID/webhooks" \
 
 Requires `read_orders` (or `write_orders`) scope on your access token.
 
+## DigipWMS `Pedido_Completo` webhook
+
+DigipWMS notifies the stack when an order is completed (`Pedido_Completo`). The webhook Lambda logs the payload and asynchronously invokes **Tiendanube fulfillment ship**.
+
+**Flow:**
+
+1. Digip `POST` → `POST /webhooks/digip/pedido-completo`
+2. Extract `data.Codigo` (e.g. `1984097529TN`) → Tiendanube order id `1984097529`
+3. **TiendanubeFulfillmentShipFunction**: `GET /orders/{id}` → read `fulfillments[]` → `PATCH` each to **`DISPATCHED`** ([Tiendanube docs](https://tiendanube.github.io/api-documentation/resources/fulfillment-order); there is no `SHIPPED` status)
+4. Update DynamoDB `patagonia-pedidos` with `fulfillmentStatus: DISPATCHED`, `shippedAt`
+
+**Tiendanube token scopes required:** `read_orders`, **`write_fulfillment_orders`**.
+
+### Register the webhook in DigipWMS
+
+After deploy, use the stack output `DigipPedidoCompletoWebhookUrl` and your Patagonia API key (`patagonia-wms/api-key`). Choose a `secretKey` (1–255 chars) and store it for future validation.
+
+```bash
+curl -X POST "https://api.v2.digipwms.com/api/v2/WebHooks" \
+  -H "X-API-Key: YOUR_PATAGONIA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventType": "Pedido_Completo",
+    "url": "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/webhooks/digip/pedido-completo",
+    "secretKey": "YOUR_WEBHOOK_SECRET"
+  }'
+```
+
+Verify subscriptions:
+
+```bash
+curl -s "https://api.v2.digipwms.com/api/v2/WebHooks" \
+  -H "X-API-Key: YOUR_PATAGONIA_API_KEY"
+```
+
+API reference: [DigipWMS Swagger v2](https://api.v2.digipwms.com/swagger/index.html).
+
 ### Set Tiendanube API credentials
 
 After deploy, replace the placeholder secret value:
@@ -262,6 +299,7 @@ npm test
 | `PatagoniaApiKeySecretArn` | Secrets Manager ARN for API key |
 | `TiendanubeSecretArn` | Secrets Manager ARN for Tiendanube credentials |
 | `TiendanubeOrderPaidWebhookUrl` | Public URL to register for `order/paid` webhooks |
+| `DigipPedidoCompletoWebhookUrl` | Public URL to register for DigipWMS `Pedido_Completo` webhooks |
 | `StockChangesTableName` | DynamoDB table for availability diffs |
 | `PatagoniaPedidosTableName` | DynamoDB table for Tiendanube orders sent to Patagonia |
 
@@ -273,6 +311,8 @@ cdk/src/lambdas/stock-sync/    # Sync Lambda
 cdk/src/lambdas/stock-diff/    # Diff Lambda (S3 trigger → DynamoDB)
 cdk/src/lambdas/tiendanube-stock-sync/  # Tiendanube stock sync (DynamoDB stream)
 cdk/src/lambdas/tiendanube-order-paid-webhook/  # order/paid webhook → summary + invoke Patagonia
+cdk/src/lambdas/digip-pedido-completo-webhook/  # DigipWMS Pedido_Completo → invoke Tiendanube ship
+cdk/src/lambdas/tiendanube-fulfillment-ship/   # PATCH fulfillments DISPATCHED + update DDB
 cdk/src/lambdas/patagonia-create-pedido/       # POST DigipWMS /api/v2/Pedidos → DynamoDB
 cdk/src/lambdas/admin-api/                    # Admin dashboard, stock changes, patagonia pedidos
 cdk/lib/constructs/            # CDK constructs (Auth, StockSync)

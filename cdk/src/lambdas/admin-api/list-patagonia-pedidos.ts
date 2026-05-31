@@ -3,18 +3,35 @@ import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 
 import { PATAGONIA_PEDIDO_RECORD_TYPE } from '../../shared/patagonia-pedidos.types';
 import type { PatagoniaPedidoListItem } from '../../shared/patagonia-pedidos.types';
+import { resolvePatagoniaPedidoStatus } from '../../shared/resolve-patagonia-pedido-status';
 import { decodeCursor, encodeCursor, parseLimit } from './pagination';
 import type { AdminApiEnv, PaginatedPatagoniaPedidosResponse } from './types';
 
 const documentClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 function toListItem(item: Record<string, unknown>): PatagoniaPedidoListItem {
-  return {
+  const listItem: PatagoniaPedidoListItem = {
     codigo: String(item.codigo),
     tiendanubeOrderId: Number(item.tiendanubeOrderId),
     createdAt: String(item.createdAt),
     itemCount: Number(item.itemCount),
+    status: resolvePatagoniaPedidoStatus({
+      fulfillmentStatus:
+        typeof item.fulfillmentStatus === 'string'
+          ? item.fulfillmentStatus
+          : undefined,
+    }),
   };
+
+  if (item.fulfillmentStatus === 'DISPATCHED') {
+    listItem.fulfillmentStatus = 'DISPATCHED';
+  }
+
+  if (typeof item.shippedAt === 'string') {
+    listItem.shippedAt = item.shippedAt;
+  }
+
+  return listItem;
 }
 
 /**
@@ -38,7 +55,8 @@ export async function listPatagoniaPedidos(
       ScanIndexForward: false,
       Limit: limit,
       ExclusiveStartKey: exclusiveStartKey,
-      ProjectionExpression: 'codigo, tiendanubeOrderId, createdAt, itemCount',
+      ProjectionExpression:
+        'codigo, tiendanubeOrderId, createdAt, itemCount, fulfillmentStatus, shippedAt',
     }),
   );
 

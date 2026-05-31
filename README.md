@@ -4,9 +4,10 @@ Backend infrastructure for Unibrandco — Patagonia WMS stock sync to S3.
 
 ## Architecture
 
-- **EventBridge** triggers a Lambda every 30 minutes between **06:30** and **19:30** Argentina time (UTC-3) to fetch stock from Patagonia WMS and save JSON snapshots to S3.
+- **EventBridge** triggers a Lambda every 30 minutes between **06:30** and **19:30** Argentina time (UTC-3), **Monday to Friday**, to fetch stock from Patagonia WMS and save JSON snapshots to S3.
 - **HTTP API** (`POST /stock/sync`) allows manual sync on demand, protected by Cognito JWT (ADMIN group only).
 - Snapshots are stored at `yyyy/mm/dd/HHmmss.json` (UTC) in a private S3 bucket.
+- **EventBridge** runs a daily cleanup Lambda at **03:00 UTC** that deletes Patagonia stock snapshots older than **8 UTC calendar days**. Other bucket objects (e.g. `tienda-nube-products/products-clean.json`) are not affected.
 - **S3 ObjectCreated** triggers a diff Lambda that compares each new snapshot with the previous one and stores `UnidadesDisponibles` changes in DynamoDB.
 - **DynamoDB Stream** triggers a Tiendanube sync Lambda that maps changed SKUs to Tiendanube products and PATCHes stock via the Tiendanube API.
 

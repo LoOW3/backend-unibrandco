@@ -32,6 +32,8 @@ export class StockSyncConstruct extends Construct {
   public readonly stockDiffFunction: NodejsFunction;
   public readonly tiendanubeStockSyncFunction: NodejsFunction;
   public readonly stockChangesTable: dynamodb.Table;
+  public readonly adminApiFunction: NodejsFunction;
+  public readonly stockCleanupFunction: NodejsFunction;
   public readonly tiendanubeSecret: secretsmanager.Secret;
   public readonly httpApi: apigwv2.HttpApi;
 
@@ -101,6 +103,19 @@ export class StockSyncConstruct extends Construct {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    this.stockChangesTable.addGlobalSecondaryIndex({
+      indexName: 'byCreatedAt',
+      partitionKey: {
+        name: 'recordType',
+        type: dynamodb.AttributeType.STRING,
+      },
+      sortKey: {
+        name: 'createdAt',
+        type: dynamodb.AttributeType.STRING,
+      },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     this.stockDiffFunction = new NodejsFunction(this, 'StockDiffFunction', {
       entry: path.join(__dirname, '../../src/lambdas/stock-diff/handler.ts'),
       handler: 'handler',
@@ -140,6 +155,7 @@ export class StockSyncConstruct extends Construct {
         PRODUCTS_CLEAN_S3_KEY: 'tienda-nube-products/products-clean.json',
         TIENDANUBE_SECRET_ARN: this.tiendanubeSecret.secretArn,
         TIENDANUBE_API_VERSION: '2025-03',
+        STOCK_CHANGES_TABLE_NAME: this.stockChangesTable.tableName,
       },
       bundling: {
         minify: true,
@@ -150,6 +166,7 @@ export class StockSyncConstruct extends Construct {
 
     this.stockBucket.grantRead(this.tiendanubeStockSyncFunction);
     this.tiendanubeSecret.grantRead(this.tiendanubeStockSyncFunction);
+    this.stockChangesTable.grantReadWriteData(this.tiendanubeStockSyncFunction);
 
     this.tiendanubeStockSyncFunction.addEventSource(
       new lambdaEventSources.DynamoEventSource(this.stockChangesTable, {
@@ -163,37 +180,72 @@ export class StockSyncConstruct extends Construct {
       }),
     );
 
-    // Argentina (UTC-3, no DST): 06:30-19:30 ART = 09:30-22:30 UTC
+    // Argentina (UTC-3, no DST): 06:30-19:30 ART = 09:30-22:30 UTC, weekdays only
     const stockSyncTarget = new targets.LambdaFunction(this.stockSyncFunction);
 
     new events.Rule(this, 'StockSyncSchedule0630', {
       ruleName: 'patagonia-stock-sync-0630-ar',
-      description: 'Sync Patagonia WMS stock at 06:30 Argentina time (09:30 UTC)',
+      description: 'Sync Patagonia WMS stock at 06:30 Argentina time (09:30 UTC), Mon-Fri',
       schedule: events.Schedule.cron({
         minute: '30',
         hour: '9',
+        weekDay: 'MON-FRI',
       }),
       targets: [stockSyncTarget],
     });
 
     new events.Rule(this, 'StockSyncSchedule7To18', {
       ruleName: 'patagonia-stock-sync-0700-1830-ar',
-      description: 'Sync Patagonia WMS stock every 30 min from 07:00 to 18:30 Argentina time (10:00-21:30 UTC)',
+      description:
+        'Sync Patagonia WMS stock every 30 min from 07:00 to 18:30 Argentina time (10:00-21:30 UTC), Mon-Fri',
       schedule: events.Schedule.cron({
         minute: '0,30',
         hour: '10-21',
+        weekDay: 'MON-FRI',
       }),
       targets: [stockSyncTarget],
     });
 
     new events.Rule(this, 'StockSyncSchedule19', {
       ruleName: 'patagonia-stock-sync-1900-1930-ar',
-      description: 'Sync Patagonia WMS stock at 19:00 and 19:30 Argentina time (22:00-22:30 UTC)',
+      description:
+        'Sync Patagonia WMS stock at 19:00 and 19:30 Argentina time (22:00-22:30 UTC), Mon-Fri',
       schedule: events.Schedule.cron({
         minute: '0,30',
         hour: '22',
+        weekDay: 'MON-FRI',
       }),
       targets: [stockSyncTarget],
+    });
+
+    this.stockCleanupFunction = new NodejsFunction(this, 'StockCleanupFunction', {
+      entry: path.join(__dirname, '../../src/lambdas/stock-cleanup/handler.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 256,
+      depsLockFilePath: path.join(__dirname, '../../package-lock.json'),
+      environment: {
+        STOCK_BUCKET_NAME: this.stockBucket.bucketName,
+        RETENTION_DAYS: '8',
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        forceDockerBundling: false,
+      },
+    });
+
+    this.stockBucket.grantReadWrite(this.stockCleanupFunction);
+
+    new events.Rule(this, 'StockCleanupSchedule', {
+      ruleName: 'patagonia-stock-cleanup-daily',
+      description: 'Delete Patagonia stock snapshots older than 8 UTC days',
+      schedule: events.Schedule.cron({
+        minute: '0',
+        hour: '3',
+      }),
+      targets: [new targets.LambdaFunction(this.stockCleanupFunction)],
     });
 
     const authorizer = new apigwv2Authorizers.HttpUserPoolAuthorizer(
@@ -209,10 +261,41 @@ export class StockSyncConstruct extends Construct {
       apiName: 'unibrandco-stock-sync-api',
       corsPreflight: {
         allowHeaders: ['Authorization', 'Content-Type'],
-        allowMethods: [apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.OPTIONS],
+        allowMethods: [
+          apigwv2.CorsHttpMethod.GET,
+          apigwv2.CorsHttpMethod.POST,
+          apigwv2.CorsHttpMethod.OPTIONS,
+        ],
         allowOrigins: ['*'],
       },
     });
+
+    this.adminApiFunction = new NodejsFunction(this, 'AdminApiFunction', {
+      entry: path.join(__dirname, '../../src/lambdas/admin-api/handler.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      depsLockFilePath: path.join(__dirname, '../../package-lock.json'),
+      environment: {
+        STOCK_CHANGES_TABLE_NAME: this.stockChangesTable.tableName,
+        STOCK_BUCKET_NAME: this.stockBucket.bucketName,
+        GSI_NAME: 'byCreatedAt',
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        forceDockerBundling: false,
+      },
+    });
+
+    this.stockChangesTable.grantReadData(this.adminApiFunction);
+    this.stockBucket.grantRead(this.adminApiFunction);
+
+    const adminApiIntegration = new apigwv2Integrations.HttpLambdaIntegration(
+      'AdminApiIntegration',
+      this.adminApiFunction,
+    );
 
     this.httpApi.addRoutes({
       path: '/stock/sync',
@@ -224,6 +307,41 @@ export class StockSyncConstruct extends Construct {
       authorizer,
     });
 
+    this.httpApi.addRoutes({
+      path: '/dashboard/admin',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/stock-changes',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/stock-changes/{syncKey+}',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/stock-files/download',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/stock-files',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
     new cdk.CfnOutput(this, 'StockBucketName', {
       value: this.stockBucket.bucketName,
       description: 'S3 bucket for Patagonia stock snapshots',
@@ -232,6 +350,11 @@ export class StockSyncConstruct extends Construct {
     new cdk.CfnOutput(this, 'StockSyncApiUrl', {
       value: `${this.httpApi.apiEndpoint}/stock/sync`,
       description: 'Manual stock sync endpoint (POST, Cognito JWT required)',
+    });
+
+    new cdk.CfnOutput(this, 'AdminApiBaseUrl', {
+      value: this.httpApi.apiEndpoint,
+      description: 'Admin API base URL (GET routes, Cognito JWT + ADMIN group required)',
     });
 
     new cdk.CfnOutput(this, 'PatagoniaApiKeySecretArn', {

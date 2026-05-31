@@ -1,7 +1,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 
-import type { StockDiffRecord } from './types';
+import type { StockDiffRecord } from '../../shared/stock-changes.types';
 
 const documentClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 

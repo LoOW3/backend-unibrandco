@@ -1,5 +1,6 @@
 import { S3Client } from '@aws-sdk/client-s3';
 
+import { STOCK_DIFF_RECORD_TYPE } from '../../shared/stock-changes.types';
 import { compareStockSnapshots } from './compare-stock';
 import {
   findPreviousSnapshotKey,
@@ -45,6 +46,7 @@ export async function processStockDiff(
 
   await saveStockDiff(env.STOCK_CHANGES_TABLE_NAME, {
     pk: `SYNC#${currentSyncKey}`,
+    recordType: STOCK_DIFF_RECORD_TYPE,
     syncedAt,
     currentSyncKey,
     previousSyncKey,

@@ -5,6 +5,7 @@ export interface TiendanubeStockSyncEnv {
   PRODUCTS_CLEAN_S3_KEY: string;
   TIENDANUBE_SECRET_ARN: string;
   TIENDANUBE_API_VERSION: string;
+  STOCK_CHANGES_TABLE_NAME: string;
 }
 
 export interface ParsedStreamRecord {

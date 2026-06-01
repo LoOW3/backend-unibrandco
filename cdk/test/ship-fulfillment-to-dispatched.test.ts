@@ -26,7 +26,7 @@ describe('shipFulfillmentToDispatched', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('skips fulfillments already DISPATCHED', async () => {
+  it('skips fulfillments already PACKED or DISPATCHED', async () => {
     global.fetch = jest
       .fn()
       .mockResolvedValueOnce({
@@ -34,21 +34,28 @@ describe('shipFulfillmentToDispatched', () => {
         json: async () => ({
           id: 1984097529,
           products: [],
-          fulfillments: ['01KT0378Q9VRBDAK8A8PPNQWFN'],
+          fulfillments: ['01KT0378Q9VRBDAK8A8PPNQWFN', '01KT0378Q9VRBDAK8A8PPNQWFO'],
         }),
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ id: '01KT0378Q9VRBDAK8A8PPNQWFN', status: 'DISPATCHED' }),
+        json: async () => ({ id: '01KT0378Q9VRBDAK8A8PPNQWFN', status: 'PACKED' }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: '01KT0378Q9VRBDAK8A8PPNQWFO', status: 'DISPATCHED' }),
       } as Response);
 
     const result = await shipFulfillmentToDispatched(config, '2025-03', 1984097529);
 
     expect(result.patchedIds).toEqual([]);
-    expect(result.skippedIds).toEqual(['01KT0378Q9VRBDAK8A8PPNQWFN']);
+    expect(result.skippedIds).toEqual([
+      '01KT0378Q9VRBDAK8A8PPNQWFN',
+      '01KT0378Q9VRBDAK8A8PPNQWFO',
+    ]);
   });
 
-  it('PATCHes UNPACKED fulfillment to DISPATCHED via PACKED when needed', async () => {
+  it('PATCHes UNPACKED fulfillment to PACKED', async () => {
     global.fetch = jest
       .fn()
       .mockResolvedValueOnce({
@@ -64,18 +71,8 @@ describe('shipFulfillmentToDispatched', () => {
         json: async () => ({ id: '01KT0378Q9VRBDAK8A8PPNQWFN', status: 'UNPACKED' }),
       } as Response)
       .mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        statusText: 'Bad Request',
-        text: async () => 'invalid workflow',
-      } as Response)
-      .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ id: '01KT0378Q9VRBDAK8A8PPNQWFN', status: 'PACKED' }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ id: '01KT0378Q9VRBDAK8A8PPNQWFN', status: 'DISPATCHED' }),
       } as Response);
 
     const result = await shipFulfillmentToDispatched(config, '2025-03', 1984097529);

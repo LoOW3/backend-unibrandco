@@ -8,7 +8,7 @@ export type { PatagoniaPedidoStatus } from './resolve-patagonia-pedido-status';
 export const PATAGONIA_PEDIDO_RECORD_TYPE = 'patagonia-pedido' as const;
 
 /** Tiendanube fulfillment status after Digip Pedido_Completo processing. */
-export type PatagoniaPedidoFulfillmentStatus = 'DISPATCHED';
+export type PatagoniaPedidoFulfillmentStatus = 'PACKED' | 'DISPATCHED';
 
 /** Full Patagonia pedido record stored after successful DigipWMS create. */
 export interface PatagoniaPedidoRecord {

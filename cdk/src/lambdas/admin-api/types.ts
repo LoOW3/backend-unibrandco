@@ -68,7 +68,7 @@ export interface PatagoniaPedidoListItem {
   createdAt: string;
   itemCount: number;
   status: PatagoniaPedidoStatus;
-  fulfillmentStatus?: 'DISPATCHED';
+  fulfillmentStatus?: 'PACKED' | 'DISPATCHED';
   shippedAt?: string;
 }
 

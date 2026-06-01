@@ -11,7 +11,10 @@ export interface PatagoniaPedidoStatusInput {
 export function resolvePatagoniaPedidoStatus(
   input: PatagoniaPedidoStatusInput,
 ): PatagoniaPedidoStatus {
-  if (input.fulfillmentStatus === 'DISPATCHED') {
+  if (
+    input.fulfillmentStatus === 'PACKED' ||
+    input.fulfillmentStatus === 'DISPATCHED'
+  ) {
     return 'shipped';
   }
 

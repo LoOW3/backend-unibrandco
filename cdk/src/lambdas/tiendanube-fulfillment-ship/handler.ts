@@ -36,7 +36,7 @@ function isFulfillmentShipEvent(value: unknown): value is TiendanubeFulfillmentS
 }
 
 /**
- * Marks Tiendanube fulfillments DISPATCHED after Digip Pedido_Completo.
+ * Marks Tiendanube fulfillments PACKED after Digip Pedido_Completo.
  */
 export async function handler(event: unknown, _context: Context): Promise<void> {
   if (!isFulfillmentShipEvent(event)) {

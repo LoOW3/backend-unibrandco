@@ -14,7 +14,7 @@ export interface ProcessFulfillmentShipResult {
 }
 
 /**
- * Fetches Tiendanube order fulfillments, marks DISPATCHED, updates DynamoDB pedido record.
+ * Fetches Tiendanube order fulfillments, marks PACKED, updates DynamoDB pedido record.
  */
 export async function processFulfillmentShip(
   env: TiendanubeFulfillmentShipEnv,
@@ -54,7 +54,7 @@ export async function processFulfillmentShip(
       dynamoUpdated = await updatePatagoniaPedidoShipped({
         tableName: env.PATAGONIA_PEDIDOS_TABLE_NAME,
         digipCodigo: event.digipCodigo,
-        fulfillmentStatus: 'DISPATCHED',
+        fulfillmentStatus: 'PACKED',
         shippedAt: new Date().toISOString(),
         tiendanubeFulfillmentIds: allIds,
         digipCompletoAt: event.digipCompletoAt,

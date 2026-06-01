@@ -5,6 +5,12 @@ describe('resolvePatagoniaPedidoStatus', () => {
     expect(resolvePatagoniaPedidoStatus({})).toBe('pending');
   });
 
+  it('returns shipped when fulfillmentStatus is PACKED', () => {
+    expect(
+      resolvePatagoniaPedidoStatus({ fulfillmentStatus: 'PACKED' }),
+    ).toBe('shipped');
+  });
+
   it('returns shipped when fulfillmentStatus is DISPATCHED', () => {
     expect(
       resolvePatagoniaPedidoStatus({ fulfillmentStatus: 'DISPATCHED' }),
@@ -13,7 +19,7 @@ describe('resolvePatagoniaPedidoStatus', () => {
 
   it('returns pending for other fulfillmentStatus values', () => {
     expect(
-      resolvePatagoniaPedidoStatus({ fulfillmentStatus: 'PACKED' }),
+      resolvePatagoniaPedidoStatus({ fulfillmentStatus: 'UNPACKED' }),
     ).toBe('pending');
   });
 });

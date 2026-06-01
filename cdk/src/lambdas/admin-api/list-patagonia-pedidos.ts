@@ -23,8 +23,11 @@ function toListItem(item: Record<string, unknown>): PatagoniaPedidoListItem {
     }),
   };
 
-  if (item.fulfillmentStatus === 'DISPATCHED') {
-    listItem.fulfillmentStatus = 'DISPATCHED';
+  if (
+    item.fulfillmentStatus === 'PACKED' ||
+    item.fulfillmentStatus === 'DISPATCHED'
+  ) {
+    listItem.fulfillmentStatus = item.fulfillmentStatus;
   }
 
   if (typeof item.shippedAt === 'string') {

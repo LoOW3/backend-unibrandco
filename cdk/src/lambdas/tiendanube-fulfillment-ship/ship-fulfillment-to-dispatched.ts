@@ -4,8 +4,12 @@ import { getTiendanubeConfig } from '../../shared/get-tiendanube-config';
 import { patchTiendanubeFulfillmentStatus } from '../../shared/patch-tiendanube-fulfillment';
 import type { TiendanubeConfig, TiendanubeFulfillmentOrderStatus } from '../../shared/tiendanube.types';
 
-const TARGET_STATUS: TiendanubeFulfillmentOrderStatus = 'DISPATCHED';
-const SKIP_STATUSES = new Set<TiendanubeFulfillmentOrderStatus>(['DISPATCHED', 'DELIVERED']);
+const TARGET_STATUS: TiendanubeFulfillmentOrderStatus = 'PACKED';
+const SKIP_STATUSES = new Set<TiendanubeFulfillmentOrderStatus>([
+  'PACKED',
+  'DISPATCHED',
+  'DELIVERED',
+]);
 
 export interface ShipFulfillmentResult {
   patchedIds: string[];
@@ -13,7 +17,7 @@ export interface ShipFulfillmentResult {
 }
 
 /**
- * PATCHes each order fulfillment to DISPATCHED (with PACKED intermediate if needed).
+ * PATCHes each order fulfillment to PACKED.
  */
 export async function shipFulfillmentToDispatched(
   config: TiendanubeConfig,
@@ -43,21 +47,6 @@ export async function shipFulfillmentToDispatched(
       continue;
     }
 
-    await patchToDispatched(config, apiVersion, orderId, fulfillmentOrderId, current.status);
-    patchedIds.push(fulfillmentOrderId);
-  }
-
-  return { patchedIds, skippedIds };
-}
-
-async function patchToDispatched(
-  config: TiendanubeConfig,
-  apiVersion: string,
-  orderId: number,
-  fulfillmentOrderId: string,
-  currentStatus?: TiendanubeFulfillmentOrderStatus,
-): Promise<void> {
-  try {
     await patchTiendanubeFulfillmentStatus(
       config,
       apiVersion,
@@ -65,30 +54,8 @@ async function patchToDispatched(
       fulfillmentOrderId,
       TARGET_STATUS,
     );
-    return;
-  } catch (error) {
-    if (currentStatus !== 'UNPACKED' || !isWorkflowError(error)) {
-      throw error;
-    }
+    patchedIds.push(fulfillmentOrderId);
   }
 
-  await patchTiendanubeFulfillmentStatus(
-    config,
-    apiVersion,
-    orderId,
-    fulfillmentOrderId,
-    'PACKED',
-  );
-
-  await patchTiendanubeFulfillmentStatus(
-    config,
-    apiVersion,
-    orderId,
-    fulfillmentOrderId,
-    TARGET_STATUS,
-  );
-}
-
-function isWorkflowError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('400');
+  return { patchedIds, skippedIds };
 }

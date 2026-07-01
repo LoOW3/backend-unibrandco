@@ -5,7 +5,10 @@ export const SUPER_ADMIN_GROUP = 'SUPER_ADMIN';
 
 /**
  * Parses cognito:groups from JWT claims as returned by API Gateway HTTP API.
- * API Gateway serializes array claims as strings (e.g. "[\"ADMIN\"]" or "ADMIN,USER").
+ * The HTTP API JWT authorizer serializes a multi-valued claim as a
+ * space-separated, bracketed string (e.g. "[ADMIN SUPER_ADMIN]"); a single
+ * value comes as "[ADMIN]"; the raw ID token JWT has a real string[].
+ * Also tolerates JSON arrays and comma-separated strings.
  */
 export function parseCognitoGroups(
   groups: string | string[] | undefined,
@@ -27,19 +30,19 @@ export function parseCognitoGroups(
         return parsed.map(String);
       }
     } catch {
+      // API Gateway's bracketed form is space- (or comma-) separated, unquoted.
       return trimmed
         .slice(1, -1)
-        .split(',')
+        .split(/[\s,]+/)
         .map((group) => group.trim().replace(/^["']|["']$/g, ''))
         .filter(Boolean);
     }
   }
 
-  if (trimmed.includes(',')) {
-    return trimmed.split(',').map((group) => group.trim()).filter(Boolean);
-  }
-
-  return [trimmed];
+  return trimmed
+    .split(/[\s,]+/)
+    .map((group) => group.trim())
+    .filter(Boolean);
 }
 
 /**

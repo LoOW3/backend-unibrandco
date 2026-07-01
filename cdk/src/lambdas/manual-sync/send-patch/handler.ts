@@ -3,6 +3,7 @@ import type { Context } from 'aws-lambda';
 import { getTiendanubeConfig } from '../../../shared/get-tiendanube-config';
 import type { TiendanubeStockPatchItem } from '../../../shared/tiendanube.types';
 import { chunkPatchItems } from '../../tiendanube-stock-sync/build-stock-patch';
+import { throwIfAborted } from '../abort';
 import { getApiVersion, getBucketName, getSendBatchChunks } from '../env';
 import {
   markStepCompleted,
@@ -25,6 +26,7 @@ export async function handler(
   _context: Context,
 ): Promise<ManualSyncState> {
   const bucket = getBucketName();
+  await throwIfAborted(bucket, state.runPrefix);
   const cursor = state.sendCursor ?? 0;
 
   if (cursor === 0) {
@@ -39,16 +41,22 @@ export async function handler(
   const batchSize = getSendBatchChunks();
   const end = Math.min(cursor + batchSize, totalChunks);
 
-  if (!state.dryRun) {
-    const config = getTiendanubeConfig();
-    const apiVersion = getApiVersion();
-    for (let index = cursor; index < end; index += 1) {
+  const config = state.dryRun ? null : getTiendanubeConfig();
+  const apiVersion = getApiVersion();
+  for (let index = cursor; index < end; index += 1) {
+    // Stop before sending another chunk if an abort was requested.
+    await throwIfAborted(bucket, state.runPrefix);
+    if (config) {
       await patchStockChunk(config, apiVersion, chunks[index]);
     }
+    // Report per-chunk so the UI progress bar advances smoothly.
+    await updateSendProgress(bucket, state.runPrefix, index + 1, totalChunks);
   }
 
   const sendDone = end >= totalChunks;
-  await updateSendProgress(bucket, state.runPrefix, end, totalChunks);
+  if (totalChunks === 0) {
+    await updateSendProgress(bucket, state.runPrefix, 0, 0);
+  }
 
   if (sendDone) {
     const patchedProducts = patchItems.length;

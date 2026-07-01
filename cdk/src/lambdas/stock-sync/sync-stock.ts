@@ -1,40 +1,17 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import {
-  GetSecretValueCommand,
-  SecretsManagerClient,
-} from '@aws-sdk/client-secrets-manager';
 
+import { getPatagoniaApiKey } from '../../shared/get-patagonia-api-key';
 import { buildStockS3Key } from './s3-key';
 import type { PatagoniaStockItem, StockSyncEnv, StockSyncResult } from './types';
-
-let cachedApiKey: string | undefined;
-
-/**
- * Retrieves the Patagonia WMS API key from Secrets Manager with in-memory cache.
- */
-async function getApiKey(secretArn: string): Promise<string> {
-  if (cachedApiKey) {
-    return cachedApiKey;
-  }
-
-  const client = new SecretsManagerClient({});
-  const response = await client.send(
-    new GetSecretValueCommand({ SecretId: secretArn }),
-  );
-
-  if (!response.SecretString) {
-    throw new Error('Patagonia API key secret is empty');
-  }
-
-  cachedApiKey = response.SecretString;
-  return response.SecretString;
-}
 
 /**
  * Fetches stock data from Patagonia WMS and stores it in S3.
  */
-export async function syncStock(env: StockSyncEnv): Promise<StockSyncResult> {
-  const apiKey = await getApiKey(env.PATAGONIA_API_KEY_SECRET_ARN);
+export async function syncStock(
+  env: StockSyncEnv,
+  triggeredBy?: string | null,
+): Promise<StockSyncResult> {
+  const apiKey = getPatagoniaApiKey();
 
   console.log({
     action: 'fetching stock from Patagonia WMS',
@@ -76,6 +53,8 @@ export async function syncStock(env: StockSyncEnv): Promise<StockSyncResult> {
       Key: s3Key,
       Body: JSON.stringify(stockItems),
       ContentType: 'application/json',
+      // Records who triggered a manual sync; absent for scheduled runs.
+      Metadata: triggeredBy ? { 'triggered-by': triggeredBy } : undefined,
     }),
   );
 

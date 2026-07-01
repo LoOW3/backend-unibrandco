@@ -2,6 +2,7 @@ import type { Context } from 'aws-lambda';
 
 import { getPatagoniaApiKey } from '../../../shared/get-patagonia-api-key';
 import type { PatagoniaStockItem } from '../../../shared/patagonia-stock.types';
+import { throwIfAborted } from '../abort';
 import { getBucketName, getPatagoniaApiUrl } from '../env';
 import { markStepCompleted, markStepRunning } from '../manifest';
 import { putJson } from '../s3-json';
@@ -16,6 +17,7 @@ export async function handler(
   _context: Context,
 ): Promise<ManualSyncState> {
   const bucket = getBucketName();
+  await throwIfAborted(bucket, state.runPrefix);
   await markStepRunning(bucket, state.runPrefix, 'fetch-patagonia', new Date().toISOString());
 
   const apiKey = getPatagoniaApiKey();

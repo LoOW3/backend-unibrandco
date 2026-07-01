@@ -1,4 +1,4 @@
-import { S3Client } from '@aws-sdk/client-s3';
+import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 import { STOCK_DIFF_RECORD_TYPE } from '../../shared/stock-changes.types';
 import { compareStockSnapshots } from './compare-stock';
@@ -44,6 +44,12 @@ export async function processStockDiff(
   const syncedAt = parseSyncedAtFromKey(currentSyncKey);
   const createdAt = new Date().toISOString();
 
+  // The snapshot object carries who triggered a manual sync (absent = automatic).
+  const head = await s3Client.send(
+    new HeadObjectCommand({ Bucket: env.STOCK_BUCKET_NAME, Key: currentSyncKey }),
+  );
+  const triggeredBy = head.Metadata?.['triggered-by'] ?? null;
+
   await saveStockDiff(env.STOCK_CHANGES_TABLE_NAME, {
     pk: `SYNC#${currentSyncKey}`,
     recordType: STOCK_DIFF_RECORD_TYPE,
@@ -53,6 +59,7 @@ export async function processStockDiff(
     changedItems,
     changedCount: changedItems.length,
     createdAt,
+    triggeredBy,
   });
 
   return {

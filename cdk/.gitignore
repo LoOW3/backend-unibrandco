@@ -6,3 +6,8 @@ node_modules
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# Local credentials injected into Lambda env vars at deploy time
+.env
+.env.*
+!.env.example

@@ -18,6 +18,7 @@ export async function saveTiendanubeSync(
   pk: string,
   syncKey: string,
   tiendanubeSync: TiendanubeSyncResult,
+  triggeredBy: string | null = null,
 ): Promise<void> {
   await documentClient.send(
     new UpdateCommand({
@@ -37,6 +38,7 @@ export async function saveTiendanubeSync(
     patchedAt: tiendanubeSync.patchedAt,
     patchedCount: tiendanubeSync.patchedCount,
     patchedItems: tiendanubeSync.patchedItems,
+    triggeredBy,
   };
 
   await documentClient.send(

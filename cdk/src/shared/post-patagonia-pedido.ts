@@ -6,10 +6,9 @@ import type { PatagoniaCreatePedido } from './patagonia-pedido.types';
  */
 export async function postPatagoniaPedido(
   apiUrl: string,
-  secretArn: string,
   body: PatagoniaCreatePedido,
 ): Promise<void> {
-  const apiKey = await getPatagoniaApiKey(secretArn);
+  const apiKey = getPatagoniaApiKey();
 
   const response = await fetch(apiUrl, {
     method: 'POST',

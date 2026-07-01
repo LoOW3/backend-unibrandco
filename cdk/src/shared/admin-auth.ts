@@ -1,6 +1,7 @@
 import type { CognitoJwtClaims } from './cognito.types';
 
 export const ADMIN_GROUP = 'ADMIN';
+export const SUPER_ADMIN_GROUP = 'SUPER_ADMIN';
 
 /**
  * Parses cognito:groups from JWT claims as returned by API Gateway HTTP API.
@@ -65,5 +66,15 @@ export function getGroupsFromClaims(
 export function isAdminUser(
   claims: CognitoJwtClaims | Record<string, string | string[] | undefined> | undefined,
 ): boolean {
-  return getGroupsFromClaims(claims).includes(ADMIN_GROUP);
+  const groups = getGroupsFromClaims(claims);
+  return groups.includes(ADMIN_GROUP) || groups.includes(SUPER_ADMIN_GROUP);
+}
+
+/**
+ * Checks whether the JWT claims include membership in the SUPER_ADMIN group.
+ */
+export function isSuperAdminUser(
+  claims: CognitoJwtClaims | Record<string, string | string[] | undefined> | undefined,
+): boolean {
+  return getGroupsFromClaims(claims).includes(SUPER_ADMIN_GROUP);
 }

@@ -31,6 +31,7 @@ export async function getDashboard(
       syncedAt: String(item.syncedAt),
       patchedAt: String(item.patchedAt),
       patchedCount: Number(item.patchedCount),
+      triggeredBy: typeof item.triggeredBy === 'string' ? item.triggeredBy : null,
       patchedItems: Array.isArray(item.patchedItems)
         ? item.patchedItems.map((patchedItem: Record<string, unknown>) => ({
             sku: String(patchedItem.sku),

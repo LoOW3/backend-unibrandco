@@ -13,7 +13,7 @@ describe('CdkStack', () => {
     const template = Template.fromStack(stack);
 
     template.resourceCountIs('AWS::S3::Bucket', 1);
-    template.resourceCountIs('AWS::SecretsManager::Secret', 2);
+    template.resourceCountIs('AWS::SecretsManager::Secret', 0);
     template.resourceCountIs('AWS::Lambda::Function', 10);
     template.resourceCountIs('AWS::DynamoDB::Table', 2);
     template.resourceCountIs('AWS::Events::Rule', 4);

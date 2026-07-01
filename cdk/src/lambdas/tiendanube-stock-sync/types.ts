@@ -3,7 +3,6 @@ import type { StockChangeItem } from '../../shared/patagonia-stock.types';
 export interface TiendanubeStockSyncEnv {
   STOCK_BUCKET_NAME: string;
   PRODUCTS_CLEAN_S3_KEY: string;
-  TIENDANUBE_SECRET_ARN: string;
   TIENDANUBE_API_VERSION: string;
   STOCK_CHANGES_TABLE_NAME: string;
 }
@@ -11,6 +10,7 @@ export interface TiendanubeStockSyncEnv {
 export interface ParsedStreamRecord {
   pk: string;
   changedItems: StockChangeItem[];
+  triggeredBy?: string | null;
 }
 
 export interface BuildStockPatchResult {

@@ -24,6 +24,7 @@ export function parseStreamRecord(
   const item = unmarshall(newImage as Record<string, AttributeValue>) as {
     pk?: string;
     changedItems?: StockChangeItem[];
+    triggeredBy?: string | null;
   };
 
   if (!item.pk || !Array.isArray(item.changedItems)) {
@@ -33,5 +34,6 @@ export function parseStreamRecord(
   return {
     pk: item.pk,
     changedItems: item.changedItems,
+    triggeredBy: item.triggeredBy ?? null,
   };
 }

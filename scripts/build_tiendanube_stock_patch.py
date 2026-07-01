@@ -161,6 +161,16 @@ def write_patch_output(output_path: Path, patch_items: list[dict[str, Any]]) -> 
     )
 
 
+def repo_relative_path(path: Path) -> str:
+    """Return a repo-relative path string, falling back to absolute if needed."""
+    resolved = path.resolve()
+    repo_root = SCRIPT_DIR.parent.resolve()
+    try:
+        return str(resolved.relative_to(repo_root))
+    except ValueError:
+        return str(resolved)
+
+
 def write_skipped_report(
     skipped_report_path: Path,
     stock_path: Path,
@@ -175,8 +185,8 @@ def write_skipped_report(
 
     skipped_report_path.parent.mkdir(parents=True, exist_ok=True)
     report = {
-        "source_stock": str(stock_path.relative_to(SCRIPT_DIR.parent)),
-        "source_catalog": str(catalog_path.relative_to(SCRIPT_DIR.parent)),
+        "source_stock": repo_relative_path(stock_path),
+        "source_catalog": repo_relative_path(catalog_path),
         "total_snapshot_items": total_snapshot_items,
         "matched_count": matched_count,
         "skipped_count": len(skipped_items),

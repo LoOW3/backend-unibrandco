@@ -22,6 +22,7 @@ async function persistTiendanubeSync(
   result: TiendanubeStockSyncResult,
   changedItems: ParsedStreamRecord['changedItems'],
   skuIndex: Map<string, SkuMapping>,
+  triggeredBy: string | null,
 ): Promise<void> {
   const patchedItems = buildPatchedItems(changedItems, skuIndex);
   const patchedAt = new Date().toISOString();
@@ -40,6 +41,7 @@ async function persistTiendanubeSync(
     pk,
     syncKey,
     tiendanubeSync,
+    triggeredBy,
   );
 }
 
@@ -79,13 +81,14 @@ export async function processTiendanubeStockSync(
       result,
       changedItems,
       catalog.skuIndex,
+      parsed.triggeredBy ?? null,
     );
 
     console.log(JSON.stringify({ action: 'tiendanube stock sync skipped', ...result }));
     return result;
   }
 
-  const config = await getTiendanubeConfig(env.TIENDANUBE_SECRET_ARN);
+  const config = getTiendanubeConfig();
   const patchedCount = await patchTiendanubeStock(
     config,
     env.TIENDANUBE_API_VERSION,
@@ -108,6 +111,7 @@ export async function processTiendanubeStockSync(
     result,
     changedItems,
     catalog.skuIndex,
+    parsed.triggeredBy ?? null,
   );
 
   if (patchResult.skippedNoSku.length > 0) {

@@ -6,6 +6,7 @@ export interface AdminApiEnv {
   PATAGONIA_PEDIDOS_TABLE_NAME: string;
   PATAGONIA_PEDIDOS_GSI_NAME: string;
   MANUAL_SYNC_STATE_MACHINE_ARN: string;
+  USER_POOL_ID: string;
 }
 
 /** Response returned when a manual sync run is triggered. */
@@ -40,6 +41,7 @@ export interface AdminDashboardResponse {
     syncedAt: string;
     patchedAt: string;
     patchedCount: number;
+    triggeredBy?: string | null;
     patchedItems: Array<{
       sku: string;
       newStock: number;
@@ -55,6 +57,7 @@ export interface StockChangeSummary {
   previousSyncKey: string;
   changedCount: number;
   createdAt: string;
+  triggeredBy?: string | null;
   tiendanubeSync?: {
     patchedAt: string;
     patchedCount: number;

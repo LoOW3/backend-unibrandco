@@ -7,16 +7,14 @@ import { processOrderPaid } from './process-order-paid';
 import type { TiendanubeOrderPaidWebhookEnv } from './types';
 
 function getEnv(): TiendanubeOrderPaidWebhookEnv {
-  const secretArn = process.env.TIENDANUBE_SECRET_ARN;
   const apiVersion = process.env.TIENDANUBE_API_VERSION ?? '2025-03';
   const patagoniaFunctionName = process.env.PATAGONIA_CREATE_PEDIDO_FUNCTION_NAME;
 
-  if (!secretArn || !patagoniaFunctionName) {
+  if (!patagoniaFunctionName) {
     throw new Error('Missing required environment variables for Tiendanube order paid webhook');
   }
 
   return {
-    TIENDANUBE_SECRET_ARN: secretArn,
     TIENDANUBE_API_VERSION: apiVersion,
     PATAGONIA_CREATE_PEDIDO_FUNCTION_NAME: patagoniaFunctionName,
   };

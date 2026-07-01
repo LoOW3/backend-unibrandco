@@ -12,17 +12,15 @@ import type { PatagoniaCreatePedidoEnv } from './types';
 
 function getEnv(): PatagoniaCreatePedidoEnv {
   const apiUrl = process.env.PATAGONIA_PEDIDOS_API_URL;
-  const secretArn = process.env.PATAGONIA_API_KEY_SECRET_ARN;
   const tableName = process.env.PATAGONIA_PEDIDOS_TABLE_NAME;
   const clienteUbicacionCodigo = process.env.CLIENTE_UBICACION_CODIGO ?? '8436326823';
 
-  if (!apiUrl || !secretArn || !tableName) {
+  if (!apiUrl || !tableName) {
     throw new Error('Missing required environment variables for Patagonia create pedido');
   }
 
   return {
     PATAGONIA_PEDIDOS_API_URL: apiUrl,
-    PATAGONIA_API_KEY_SECRET_ARN: secretArn,
     CLIENTE_UBICACION_CODIGO: clienteUbicacionCodigo,
     PATAGONIA_PEDIDOS_TABLE_NAME: tableName,
   };
@@ -71,7 +69,6 @@ export async function handler(
 
     await postPatagoniaPedido(
       env.PATAGONIA_PEDIDOS_API_URL,
-      env.PATAGONIA_API_KEY_SECRET_ARN,
       createPedido,
     );
 

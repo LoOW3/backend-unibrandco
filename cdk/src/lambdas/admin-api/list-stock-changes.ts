@@ -21,6 +21,7 @@ function toSummary(item: Record<string, unknown>): StockChangeSummary {
     previousSyncKey: String(item.previousSyncKey),
     changedCount: Number(item.changedCount),
     createdAt: String(item.createdAt),
+    triggeredBy: typeof item.triggeredBy === 'string' ? item.triggeredBy : null,
     tiendanubeSync: tiendanubeSyncRaw
       ? {
           patchedAt: String(tiendanubeSyncRaw.patchedAt),
@@ -55,7 +56,7 @@ export async function listStockChanges(
       Limit: limit,
       ExclusiveStartKey: exclusiveStartKey,
       ProjectionExpression:
-        'pk, syncedAt, currentSyncKey, previousSyncKey, changedCount, createdAt, tiendanubeSync',
+        'pk, syncedAt, currentSyncKey, previousSyncKey, changedCount, createdAt, triggeredBy, tiendanubeSync',
     }),
   );
 

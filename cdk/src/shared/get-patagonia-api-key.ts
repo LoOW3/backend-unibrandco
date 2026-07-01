@@ -1,32 +1,12 @@
-import {
-  GetSecretValueCommand,
-  SecretsManagerClient,
-} from '@aws-sdk/client-secrets-manager';
-
-let cachedApiKey: string | undefined;
-
 /**
- * Retrieves the Patagonia/DigipWMS API key from Secrets Manager with in-memory cache.
+ * Retrieves the Patagonia/DigipWMS API key from the PATAGONIA_API_KEY env var.
  */
-export async function getPatagoniaApiKey(secretArn: string): Promise<string> {
-  if (cachedApiKey) {
-    return cachedApiKey;
+export function getPatagoniaApiKey(): string {
+  const apiKey = process.env.PATAGONIA_API_KEY;
+
+  if (!apiKey) {
+    throw new Error('Missing PATAGONIA_API_KEY environment variable');
   }
 
-  const client = new SecretsManagerClient({});
-  const response = await client.send(
-    new GetSecretValueCommand({ SecretId: secretArn }),
-  );
-
-  if (!response.SecretString) {
-    throw new Error('Patagonia API key secret is empty');
-  }
-
-  cachedApiKey = response.SecretString;
-  return response.SecretString;
-}
-
-/** Clears cached API key (for tests). */
-export function clearPatagoniaApiKeyCache(): void {
-  cachedApiKey = undefined;
+  return apiKey;
 }

@@ -121,7 +121,7 @@ Patagonia pedido mapping:
 | `items[].articuloCodigo` | product `sku` |
 | `items[].unidades` | product `quantity` |
 
-Uses the same `patagonia-wms/api-key` secret (`X-API-Key`) as stock sync; pedidos use API **v2**, stock uses **v1**.
+Uses the same `PATAGONIA_API_KEY` env var (`X-API-Key`) as stock sync; pedidos use API **v2**, stock uses **v1**.
 
 Events other than `order/paid` return `200 { received: true, skipped: true }` and do not call Patagonia.
 
@@ -159,7 +159,7 @@ DigipWMS notifies the stack when an order is completed (`Pedido_Completo`). The 
 
 ### Register the webhook in DigipWMS
 
-After deploy, use the stack output `DigipPedidoCompletoWebhookUrl` and your Patagonia API key (`patagonia-wms/api-key`). Choose a `secretKey` (1–255 chars) and store it for future validation.
+After deploy, use the stack output `DigipPedidoCompletoWebhookUrl` and your Patagonia API key (`PATAGONIA_API_KEY`). Choose a `secretKey` (1–255 chars) and store it for future validation.
 
 ```bash
 curl -X POST "https://api.v2.digipwms.com/api/v2/WebHooks" \
@@ -181,20 +181,26 @@ curl -s "https://api.v2.digipwms.com/api/v2/WebHooks" \
 
 API reference: [DigipWMS Swagger v2](https://api.v2.digipwms.com/swagger/index.html).
 
-### Set Tiendanube API credentials
+### Set API credentials (`.env`)
 
-After deploy, replace the placeholder secret value:
+Las credenciales ya no se guardan en AWS Secrets Manager: se inyectan como variables
+de entorno de las Lambdas en el momento del `cdk deploy`, leídas desde un archivo
+`.env` local (no commiteado a git).
+
+Copiá `cdk/.env.example` a `cdk/.env` y completá los valores reales antes de deployar:
 
 ```bash
-aws secretsmanager put-secret-value \
-  --secret-id tiendanube/api-credentials \
-  --secret-string '{
-    "store_id": "6835321",
-    "access_token": "YOUR_TIENDANUBE_ACCESS_TOKEN",
-    "user_agent": "Unibrandco Backend (you@example.com)"
-  }' \
-  --region us-east-1
+cd cdk
+cp .env.example .env
+# editá .env con los valores reales:
+#   PATAGONIA_API_KEY=...
+#   TIENDANUBE_STORE_ID=6835321
+#   TIENDANUBE_ACCESS_TOKEN=...
+#   TIENDANUBE_USER_AGENT=Unibrandco Backend (you@example.com)
 ```
+
+> Nota: estos valores quedan visibles en texto plano en la configuración de cada
+> Lambda (consola AWS). Es el costo de no usar Secrets Manager.
 
 ## Prerequisites
 
@@ -208,24 +214,17 @@ aws secretsmanager put-secret-value \
 cd cdk
 npm install
 npm run build
+cp .env.example .env   # first time only — completá los valores reales
 npx cdk bootstrap aws://YOUR_ACCOUNT_ID/us-east-1   # first time only
 npx cdk deploy
 ```
 
+> El `cdk deploy` lee `cdk/.env` y mete esas credenciales como variables de entorno
+> de las Lambdas. Si cambiás un valor en `.env`, hay que volver a deployar.
+
 ## Post-deploy setup
 
-### 1. Set Patagonia WMS API key
-
-After deploy, replace the placeholder secret value:
-
-```bash
-aws secretsmanager put-secret-value \
-  --secret-id patagonia-wms/api-key \
-  --secret-string 'YOUR_PATAGONIA_API_KEY' \
-  --region us-east-1
-```
-
-### 2. Create an admin user
+### 1. Create an admin user
 
 ```bash
 # Create user
@@ -252,7 +251,7 @@ aws cognito-idp admin-add-user-to-group \
   --region us-east-1
 ```
 
-### 3. Get JWT token (for manual sync)
+### 2. Get JWT token (for manual sync)
 
 ```bash
 aws cognito-idp initiate-auth \
@@ -264,7 +263,7 @@ aws cognito-idp initiate-auth \
 
 Use the `IdToken` from the response.
 
-### 4. Trigger manual sync
+### 3. Trigger manual sync
 
 ```bash
 curl -X POST https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/stock/sync \
@@ -296,8 +295,6 @@ npm test
 | `UserPoolClientId` | Cognito App Client ID |
 | `StockBucketName` | S3 bucket for snapshots |
 | `StockSyncApiUrl` | Manual sync endpoint |
-| `PatagoniaApiKeySecretArn` | Secrets Manager ARN for API key |
-| `TiendanubeSecretArn` | Secrets Manager ARN for Tiendanube credentials |
 | `TiendanubeOrderPaidWebhookUrl` | Public URL to register for `order/paid` webhooks |
 | `DigipPedidoCompletoWebhookUrl` | Public URL to register for DigipWMS `Pedido_Completo` webhooks |
 | `StockChangesTableName` | DynamoDB table for availability diffs |

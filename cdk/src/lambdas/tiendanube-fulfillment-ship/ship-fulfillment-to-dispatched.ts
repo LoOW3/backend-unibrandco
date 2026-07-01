@@ -1,6 +1,5 @@
 import { fetchTiendanubeFulfillmentOrder } from '../../shared/fetch-tiendanube-fulfillment';
 import { fetchTiendanubeOrder } from '../../shared/fetch-tiendanube-order';
-import { getTiendanubeConfig } from '../../shared/get-tiendanube-config';
 import { patchTiendanubeFulfillmentStatus } from '../../shared/patch-tiendanube-fulfillment';
 import type { TiendanubeConfig, TiendanubeFulfillmentOrderStatus } from '../../shared/tiendanube.types';
 

@@ -17,16 +17,14 @@ type StockSyncHandlerEvent =
 function getEnv(): StockSyncEnv {
   const bucketName = process.env.STOCK_BUCKET_NAME;
   const apiUrl = process.env.PATAGONIA_API_URL;
-  const secretArn = process.env.PATAGONIA_API_KEY_SECRET_ARN;
 
-  if (!bucketName || !apiUrl || !secretArn) {
+  if (!bucketName || !apiUrl) {
     throw new Error('Missing required environment variables for stock sync');
   }
 
   return {
     STOCK_BUCKET_NAME: bucketName,
     PATAGONIA_API_URL: apiUrl,
-    PATAGONIA_API_KEY_SECRET_ARN: secretArn,
   };
 }
 
@@ -81,7 +79,9 @@ export async function handler(
         return jsonResponse(403, { message: 'Forbidden: ADMIN group required' });
       }
 
-      const result = await syncStock(getEnv());
+      const email = (claims as { email?: unknown } | undefined)?.email;
+      const triggeredBy = typeof email === 'string' ? email : null;
+      const result = await syncStock(getEnv(), triggeredBy);
       return jsonResponse(200, result);
     }
 

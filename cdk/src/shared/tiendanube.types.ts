@@ -43,7 +43,7 @@ export interface TiendanubeStockPatchItem {
   }>;
 }
 
-/** Tiendanube API credentials stored in Secrets Manager. */
+/** Tiendanube API credentials provided via environment variables. */
 export interface TiendanubeConfig {
   store_id: string;
   access_token: string;

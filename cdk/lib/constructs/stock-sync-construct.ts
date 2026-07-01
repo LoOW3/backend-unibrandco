@@ -560,6 +560,7 @@ export class StockSyncConstruct extends Construct {
         PATAGONIA_PEDIDOS_GSI_NAME: 'byCreatedAt',
         MANUAL_SYNC_STATE_MACHINE_ARN:
           this.manualStockSyncStateMachine.stateMachineArn,
+        USER_POOL_ID: props.userPool.userPoolId,
       },
       bundling: {
         minify: true,
@@ -576,6 +577,20 @@ export class StockSyncConstruct extends Construct {
     this.manualStockSyncStateMachine.grant(
       this.adminApiFunction,
       'states:ListExecutions',
+    );
+    props.userPool.grant(
+      this.adminApiFunction,
+      'cognito-idp:AdminGetUser',
+      'cognito-idp:ListUsers',
+      'cognito-idp:ListUsersInGroup',
+      'cognito-idp:AdminCreateUser',
+      'cognito-idp:AdminUpdateUserAttributes',
+      'cognito-idp:AdminAddUserToGroup',
+      'cognito-idp:AdminRemoveUserFromGroup',
+      'cognito-idp:AdminListGroupsForUser',
+      'cognito-idp:AdminDisableUser',
+      'cognito-idp:AdminEnableUser',
+      'cognito-idp:AdminDeleteUser',
     );
 
     const adminApiIntegration = new apigwv2Integrations.HttpLambdaIntegration(
@@ -666,6 +681,60 @@ export class StockSyncConstruct extends Construct {
     this.httpApi.addRoutes({
       path: '/admin/manual-sync/runs/{runId+}',
       methods: [apigwv2.HttpMethod.GET],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    // User management
+    this.httpApi.addRoutes({
+      path: '/admin/users',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/users/me',
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/users/me/avatar-url',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/users/invite',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/users/{email}',
+      methods: [
+        apigwv2.HttpMethod.GET,
+        apigwv2.HttpMethod.PATCH,
+        apigwv2.HttpMethod.DELETE,
+      ],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/users/{email}/disable',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/users/{email}/enable',
+      methods: [apigwv2.HttpMethod.POST],
       integration: adminApiIntegration,
       authorizer,
     });

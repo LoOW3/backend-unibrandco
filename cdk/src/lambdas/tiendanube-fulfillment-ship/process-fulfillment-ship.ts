@@ -20,7 +20,7 @@ export async function processFulfillmentShip(
   env: TiendanubeFulfillmentShipEnv,
   event: TiendanubeFulfillmentShipEvent,
 ): Promise<ProcessFulfillmentShipResult> {
-  const config = await getTiendanubeConfig(env.TIENDANUBE_SECRET_ARN);
+  const config = getTiendanubeConfig();
   const { patchedIds, skippedIds } = await shipFulfillmentToDispatched(
     config,
     env.TIENDANUBE_API_VERSION,

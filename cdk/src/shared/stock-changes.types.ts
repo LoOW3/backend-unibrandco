@@ -30,6 +30,8 @@ export interface StockDiffRecord {
   changedItems: StockChangeItem[];
   changedCount: number;
   createdAt: string;
+  /** Email of the user who triggered the sync; null/absent for scheduled runs. */
+  triggeredBy?: string | null;
   tiendanubeSync?: TiendanubeSyncResult;
 }
 
@@ -41,4 +43,6 @@ export interface TiendanubeLatestMetaRecord {
   patchedAt: string;
   patchedCount: number;
   patchedItems: TiendanubePatchedItem[];
+  /** Email of the user who triggered the sync; null/absent for scheduled runs. */
+  triggeredBy?: string | null;
 }

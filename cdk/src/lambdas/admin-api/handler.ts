@@ -26,6 +26,7 @@ import {
 } from './require-admin';
 import { ManualSyncConflictError, triggerManualSync } from './trigger-manual-sync';
 import type { AdminApiEnv } from './types';
+import { handleUsersRoutes } from './users/routes';
 
 function getEnv(): AdminApiEnv {
   const tableName = process.env.STOCK_CHANGES_TABLE_NAME;
@@ -34,6 +35,7 @@ function getEnv(): AdminApiEnv {
   const patagoniaPedidosTableName = process.env.PATAGONIA_PEDIDOS_TABLE_NAME;
   const patagoniaPedidosGsiName = process.env.PATAGONIA_PEDIDOS_GSI_NAME;
   const manualSyncStateMachineArn = process.env.MANUAL_SYNC_STATE_MACHINE_ARN;
+  const userPoolId = process.env.USER_POOL_ID;
 
   if (
     !tableName ||
@@ -41,7 +43,8 @@ function getEnv(): AdminApiEnv {
     !gsiName ||
     !patagoniaPedidosTableName ||
     !patagoniaPedidosGsiName ||
-    !manualSyncStateMachineArn
+    !manualSyncStateMachineArn ||
+    !userPoolId
   ) {
     throw new Error('Missing required environment variables for admin API');
   }
@@ -53,6 +56,7 @@ function getEnv(): AdminApiEnv {
     PATAGONIA_PEDIDOS_TABLE_NAME: patagoniaPedidosTableName,
     PATAGONIA_PEDIDOS_GSI_NAME: patagoniaPedidosGsiName,
     MANUAL_SYNC_STATE_MACHINE_ARN: manualSyncStateMachineArn,
+    USER_POOL_ID: userPoolId,
   };
 }
 
@@ -255,6 +259,11 @@ export async function handler(
         }
         throw error;
       }
+    }
+
+    const usersResponse = await handleUsersRoutes(httpEvent, env, method, path);
+    if (usersResponse) {
+      return usersResponse;
     }
 
     return jsonResponse(404, { message: 'Not found' });

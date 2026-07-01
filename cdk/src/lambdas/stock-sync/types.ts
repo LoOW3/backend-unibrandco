@@ -11,7 +11,6 @@ export interface StockSyncResult {
 export interface StockSyncEnv {
   STOCK_BUCKET_NAME: string;
   PATAGONIA_API_URL: string;
-  PATAGONIA_API_KEY_SECRET_ARN: string;
 }
 
 export type { CognitoJwtClaims } from '../../shared/cognito.types';

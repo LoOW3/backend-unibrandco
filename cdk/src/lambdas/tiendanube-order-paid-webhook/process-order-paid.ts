@@ -29,7 +29,7 @@ export async function processOrderPaid(
     return null;
   }
 
-  const config = await getTiendanubeConfig(env.TIENDANUBE_SECRET_ARN);
+  const config = getTiendanubeConfig();
 
   if (String(payload.store_id) !== config.store_id) {
     console.warn(

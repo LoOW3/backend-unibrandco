@@ -74,6 +74,17 @@ export class StockSyncConstruct extends Construct {
           expiration: cdk.Duration.days(14),
         },
       ],
+      // Allow browser presigned GET/PUT (e.g. avatar upload). Objects stay
+      // private; the presigned URL is the authorization.
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT],
+          allowedOrigins: ['*'],
+          allowedHeaders: ['*'],
+          exposedHeaders: ['ETag'],
+          maxAge: 3000,
+        },
+      ],
     });
 
     this.stockSyncFunction = new NodejsFunction(this, 'StockSyncFunction', {
@@ -539,6 +550,8 @@ export class StockSyncConstruct extends Construct {
         allowMethods: [
           apigwv2.CorsHttpMethod.GET,
           apigwv2.CorsHttpMethod.POST,
+          apigwv2.CorsHttpMethod.PATCH,
+          apigwv2.CorsHttpMethod.DELETE,
           apigwv2.CorsHttpMethod.OPTIONS,
         ],
         allowOrigins: ['*'],

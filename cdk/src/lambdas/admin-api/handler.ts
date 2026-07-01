@@ -8,6 +8,7 @@ import {
 import { getPatagoniaPedido } from './get-patagonia-pedido';
 import { resolvePatagoniaPedidoStatus } from '../../shared/resolve-patagonia-pedido-status';
 import type { PatagoniaPedidoRecordResponse } from '../../shared/patagonia-pedidos.types';
+import { writeAbortMarker } from '../manual-sync/abort';
 import { getManualSyncRun, ManualSyncRunError } from './get-manual-sync-run';
 import { getStockChange } from './get-stock-change';
 import { jsonResponse } from './http-response';
@@ -23,7 +24,7 @@ import {
   isAuthorizedAdmin,
   type HttpApiEventWithJwt,
 } from './require-admin';
-import { triggerManualSync } from './trigger-manual-sync';
+import { ManualSyncConflictError, triggerManualSync } from './trigger-manual-sync';
 import type { AdminApiEnv } from './types';
 
 function getEnv(): AdminApiEnv {
@@ -185,11 +186,45 @@ export async function handler(
     }
 
     if (method === 'POST' && path === '/admin/manual-sync/trigger') {
-      const result = await triggerManualSync(env, {
-        triggeredBy: getTriggeredBy(httpEvent),
-        dryRun: parseDryRun(httpEvent.body),
-      });
-      return jsonResponse(202, result);
+      try {
+        const result = await triggerManualSync(env, {
+          triggeredBy: getTriggeredBy(httpEvent),
+          dryRun: parseDryRun(httpEvent.body),
+        });
+        return jsonResponse(202, result);
+      } catch (error) {
+        if (error instanceof ManualSyncConflictError) {
+          return jsonResponse(409, { message: error.message });
+        }
+        throw error;
+      }
+    }
+
+    if (method === 'POST' && path === '/admin/manual-sync/abort') {
+      let runId: string | undefined;
+      try {
+        runId = (JSON.parse(httpEvent.body ?? '{}') as { runId?: string }).runId;
+      } catch {
+        runId = undefined;
+      }
+
+      if (!runId) {
+        return jsonResponse(400, { message: 'Missing runId' });
+      }
+
+      try {
+        const manifest = await getManualSyncRun(env, runId);
+        if (manifest.status !== 'RUNNING') {
+          return jsonResponse(409, { message: 'Run is not running' });
+        }
+        await writeAbortMarker(env.STOCK_BUCKET_NAME, `${runId}/`);
+        return jsonResponse(202, { runId, aborting: true });
+      } catch (error) {
+        if (error instanceof ManualSyncRunError) {
+          return jsonResponse(error.statusCode, { message: error.message });
+        }
+        throw error;
+      }
     }
 
     if (method === 'GET' && path === '/admin/manual-sync/runs') {

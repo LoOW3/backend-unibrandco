@@ -10,6 +10,16 @@ export interface FetchProductsResult {
   expectedTotal: number | null;
 }
 
+/** Products fetched per page — used to derive total pages for progress. */
+export const PRODUCTS_PAGE_SIZE = PAGE_SIZE;
+
+/** Called after each page so callers can report progress. */
+export type FetchProgressCallback = (progress: {
+  pagesFetched: number;
+  expectedTotal: number | null;
+  productsSoFar: number;
+}) => Promise<void> | void;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -67,6 +77,7 @@ async function fetchProductsPage(
 export async function fetchAllProducts(
   config: TiendanubeConfig,
   apiVersion: string,
+  onProgress?: FetchProgressCallback,
 ): Promise<FetchProductsResult> {
   const allProducts: unknown[] = [];
   let expectedTotal: number | null = null;
@@ -85,6 +96,14 @@ export async function fetchAllProducts(
     }
 
     allProducts.push(...products);
+
+    if (onProgress) {
+      await onProgress({
+        pagesFetched: page,
+        expectedTotal,
+        productsSoFar: allProducts.length,
+      });
+    }
 
     if (products.length < PAGE_SIZE) {
       break;

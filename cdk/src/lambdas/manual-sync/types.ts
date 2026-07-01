@@ -10,8 +10,8 @@ export const MANUAL_SYNC_STEPS = [
 
 export type ManualSyncStepKey = (typeof MANUAL_SYNC_STEPS)[number]['key'];
 
-export type ManualSyncStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
-export type ManualSyncStepStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+export type ManualSyncStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'ABORTED';
+export type ManualSyncStepStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'ABORTED';
 
 /** One step entry inside the run manifest. */
 export interface ManifestStep {
@@ -35,6 +35,8 @@ export interface ManifestArtifact {
 export interface ManifestCounts {
   patagoniaItems?: number;
   tnProducts?: number;
+  tnPagesFetched?: number;
+  tnPagesTotal?: number;
   matched?: number;
   skipped?: number;
   patched?: number;

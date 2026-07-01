@@ -1,7 +1,8 @@
 import type { Context } from 'aws-lambda';
 
+import { isAbortRequested } from '../abort';
 import { getBucketName } from '../env';
-import { markRunFailed } from '../manifest';
+import { markRunAborted, markRunFailed } from '../manifest';
 import type { ManualSyncState } from '../types';
 
 /** State + Step Functions error payload (injected via Catch ResultPath). */
@@ -41,7 +42,13 @@ export async function handler(
   const message = extractErrorMessage(event.error);
 
   if (event.runPrefix) {
-    await markRunFailed(bucket, event.runPrefix, new Date().toISOString(), message);
+    const nowIso = new Date().toISOString();
+    if (await isAbortRequested(bucket, event.runPrefix)) {
+      await markRunAborted(bucket, event.runPrefix, nowIso);
+      console.log(JSON.stringify({ action: 'manual sync run aborted', runId: event.runId }));
+      return event;
+    }
+    await markRunFailed(bucket, event.runPrefix, nowIso, message);
   }
 
   console.error(JSON.stringify({ action: 'manual sync run failed', runId: event.runId, message }));

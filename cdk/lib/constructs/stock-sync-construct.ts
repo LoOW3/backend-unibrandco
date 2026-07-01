@@ -66,6 +66,14 @@ export class StockSyncConstruct extends Construct {
       enforceSSL: true,
       versioned: false,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      lifecycleRules: [
+        {
+          // Manual full-sync runs (artifacts + manifest) are kept 2 weeks.
+          id: 'expire-manual-sync-runs',
+          prefix: 'manual-sync/',
+          expiration: cdk.Duration.days(14),
+        },
+      ],
     });
 
     this.stockSyncFunction = new NodejsFunction(this, 'StockSyncFunction', {
@@ -565,6 +573,10 @@ export class StockSyncConstruct extends Construct {
     // Admin API reads snapshots/manifests and writes the initial run manifest.
     this.stockBucket.grantReadWrite(this.adminApiFunction);
     this.manualStockSyncStateMachine.grantStartExecution(this.adminApiFunction);
+    this.manualStockSyncStateMachine.grant(
+      this.adminApiFunction,
+      'states:ListExecutions',
+    );
 
     const adminApiIntegration = new apigwv2Integrations.HttpLambdaIntegration(
       'AdminApiIntegration',
@@ -632,6 +644,13 @@ export class StockSyncConstruct extends Construct {
 
     this.httpApi.addRoutes({
       path: '/admin/manual-sync/trigger',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/manual-sync/abort',
       methods: [apigwv2.HttpMethod.POST],
       integration: adminApiIntegration,
       authorizer,

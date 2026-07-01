@@ -1,5 +1,6 @@
 import type { Context } from 'aws-lambda';
 
+import { throwIfAborted } from '../abort';
 import { getBucketName } from '../env';
 import { cleanProducts, type RawProductsExport } from '../clean-products';
 import { markStepCompleted, markStepRunning } from '../manifest';
@@ -14,6 +15,7 @@ export async function handler(
   _context: Context,
 ): Promise<ManualSyncState> {
   const bucket = getBucketName();
+  await throwIfAborted(bucket, state.runPrefix);
   await markStepRunning(bucket, state.runPrefix, 'clean', new Date().toISOString());
 
   const sourceKey = `${state.runPrefix}${ARTIFACT_KEYS.products}`;

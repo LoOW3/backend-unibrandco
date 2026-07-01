@@ -2,6 +2,7 @@ import type { Context } from 'aws-lambda';
 
 import type { PatagoniaStockItem } from '../../../shared/patagonia-stock.types';
 import type { ProductsCleanExport } from '../../../shared/tiendanube.types';
+import { throwIfAborted } from '../abort';
 import { getBucketName } from '../env';
 import { buildManualStockPatch, buildSkuIndex } from '../build-patch';
 import { markStepCompleted, markStepRunning } from '../manifest';
@@ -17,6 +18,7 @@ export async function handler(
   _context: Context,
 ): Promise<ManualSyncState> {
   const bucket = getBucketName();
+  await throwIfAborted(bucket, state.runPrefix);
   await markStepRunning(bucket, state.runPrefix, 'build-patch', new Date().toISOString());
 
   const stockKey = `${state.runPrefix}${ARTIFACT_KEYS.patagoniaStock}`;

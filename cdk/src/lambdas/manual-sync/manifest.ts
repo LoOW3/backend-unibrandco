@@ -120,6 +120,26 @@ export function markStepCompleted(
   });
 }
 
+/** Updates fetch-tiendanube page progress, blending into the 2nd sixth of progress. */
+export function updateFetchProgress(
+  bucket: string,
+  runPrefix: string,
+  pagesFetched: number,
+  pagesTotal: number,
+  productsSoFar: number,
+): Promise<Manifest> {
+  return updateManifest(bucket, runPrefix, (manifest) => {
+    manifest.counts.tnPagesFetched = pagesFetched;
+    manifest.counts.tnPagesTotal = pagesTotal;
+    manifest.counts.tnProducts = productsSoFar;
+    const fraction = pagesTotal > 0 ? Math.min(1, pagesFetched / pagesTotal) : 0;
+    const completedBefore = 1; // fetch-patagonia done before fetch-tiendanube
+    manifest.progress = Math.round(
+      ((completedBefore + fraction) / MANUAL_SYNC_STEPS.length) * 100,
+    );
+  });
+}
+
 /** Updates send-patch chunk progress, blending into the last sixth of progress. */
 export function updateSendProgress(
   bucket: string,
@@ -149,6 +169,23 @@ export function markRunCompleted(
     manifest.completedAt = nowIso;
     manifest.currentStep = null;
     manifest.progress = 100;
+  });
+}
+
+/** Marks the run ABORTED, freezing the currently running step. */
+export function markRunAborted(
+  bucket: string,
+  runPrefix: string,
+  nowIso: string,
+): Promise<Manifest> {
+  return updateManifest(bucket, runPrefix, (manifest) => {
+    manifest.status = 'ABORTED';
+    manifest.completedAt = nowIso;
+    const runningStep = manifest.steps.find((step) => step.status === 'RUNNING');
+    if (runningStep) {
+      runningStep.status = 'ABORTED';
+      runningStep.completedAt = nowIso;
+    }
   });
 }
 

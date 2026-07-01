@@ -13,7 +13,8 @@ import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
+import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import { Construct } from 'constructs';
 
 export interface StockSyncConstructProps {
@@ -23,11 +24,10 @@ export interface StockSyncConstructProps {
 }
 
 /**
- * Stock sync infrastructure: S3, Secrets Manager, Lambda, EventBridge, HTTP API.
+ * Stock sync infrastructure: S3, Lambda, EventBridge, HTTP API.
  */
 export class StockSyncConstruct extends Construct {
   public readonly stockBucket: s3.Bucket;
-  public readonly apiKeySecret: secretsmanager.Secret;
   public readonly stockSyncFunction: NodejsFunction;
   public readonly stockDiffFunction: NodejsFunction;
   public readonly tiendanubeStockSyncFunction: NodejsFunction;
@@ -39,7 +39,7 @@ export class StockSyncConstruct extends Construct {
   public readonly patagoniaPedidosTable: dynamodb.Table;
   public readonly adminApiFunction: NodejsFunction;
   public readonly stockCleanupFunction: NodejsFunction;
-  public readonly tiendanubeSecret: secretsmanager.Secret;
+  public readonly manualStockSyncStateMachine: sfn.StateMachine;
   public readonly httpApi: apigwv2.HttpApi;
 
   constructor(scope: Construct, id: string, props: StockSyncConstructProps) {
@@ -48,6 +48,17 @@ export class StockSyncConstruct extends Construct {
     const patagoniaApiUrl =
       props.patagoniaApiUrl ?? 'http://api.patagoniawms.com/v1/Stock';
 
+    // Credentials are injected as Lambda environment variables at deploy time
+    // from a local .env file (see cdk/.env.example). Placeholders keep synth
+    // working when the values are not present (e.g. in CI/unit tests).
+    const patagoniaApiKey = process.env.PATAGONIA_API_KEY ?? 'REPLACE_ME';
+    const tiendanubeStoreId = process.env.TIENDANUBE_STORE_ID ?? 'REPLACE_ME';
+    const tiendanubeAccessToken =
+      process.env.TIENDANUBE_ACCESS_TOKEN ?? 'REPLACE_ME';
+    const tiendanubeUserAgent =
+      process.env.TIENDANUBE_USER_AGENT ??
+      'Unibrandco Backend (ignaciodiaznanni@gmail.com)';
+
     this.stockBucket = new s3.Bucket(this, 'StockBucket', {
       bucketName: cdk.PhysicalName.GENERATE_IF_NEEDED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -55,24 +66,6 @@ export class StockSyncConstruct extends Construct {
       enforceSSL: true,
       versioned: false,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
-
-    this.apiKeySecret = new secretsmanager.Secret(this, 'PatagoniaApiKeySecret', {
-      secretName: 'patagonia-wms/api-key',
-      description: 'Patagonia WMS API key for stock sync',
-      secretStringValue: cdk.SecretValue.unsafePlainText('REPLACE_ME_AFTER_DEPLOY'),
-    });
-
-    this.tiendanubeSecret = new secretsmanager.Secret(this, 'TiendanubeApiSecret', {
-      secretName: 'tiendanube/api-credentials',
-      description: 'Tiendanube API credentials for stock sync',
-      secretStringValue: cdk.SecretValue.unsafePlainText(
-        JSON.stringify({
-          store_id: '6835321',
-          access_token: 'REPLACE_ME_AFTER_DEPLOY',
-          user_agent: 'Unibrandco Backend (ignaciodiaznanni@gmail.com)',
-        }),
-      ),
     });
 
     this.stockSyncFunction = new NodejsFunction(this, 'StockSyncFunction', {
@@ -85,7 +78,7 @@ export class StockSyncConstruct extends Construct {
       environment: {
         STOCK_BUCKET_NAME: this.stockBucket.bucketName,
         PATAGONIA_API_URL: patagoniaApiUrl,
-        PATAGONIA_API_KEY_SECRET_ARN: this.apiKeySecret.secretArn,
+        PATAGONIA_API_KEY: patagoniaApiKey,
       },
       bundling: {
         minify: true,
@@ -95,7 +88,6 @@ export class StockSyncConstruct extends Construct {
     });
 
     this.stockBucket.grantPut(this.stockSyncFunction);
-    this.apiKeySecret.grantRead(this.stockSyncFunction);
 
     this.stockChangesTable = new dynamodb.Table(this, 'StockChangesTable', {
       tableName: 'stock-availability-changes',
@@ -181,7 +173,9 @@ export class StockSyncConstruct extends Construct {
       environment: {
         STOCK_BUCKET_NAME: this.stockBucket.bucketName,
         PRODUCTS_CLEAN_S3_KEY: 'tienda-nube-products/products-clean.json',
-        TIENDANUBE_SECRET_ARN: this.tiendanubeSecret.secretArn,
+        TIENDANUBE_STORE_ID: tiendanubeStoreId,
+        TIENDANUBE_ACCESS_TOKEN: tiendanubeAccessToken,
+        TIENDANUBE_USER_AGENT: tiendanubeUserAgent,
         TIENDANUBE_API_VERSION: '2025-03',
         STOCK_CHANGES_TABLE_NAME: this.stockChangesTable.tableName,
       },
@@ -193,7 +187,6 @@ export class StockSyncConstruct extends Construct {
     });
 
     this.stockBucket.grantRead(this.tiendanubeStockSyncFunction);
-    this.tiendanubeSecret.grantRead(this.tiendanubeStockSyncFunction);
     this.stockChangesTable.grantReadWriteData(this.tiendanubeStockSyncFunction);
 
     this.patagoniaCreatePedidoFunction = new NodejsFunction(
@@ -211,7 +204,7 @@ export class StockSyncConstruct extends Construct {
         depsLockFilePath: path.join(__dirname, '../../package-lock.json'),
         environment: {
           PATAGONIA_PEDIDOS_API_URL: 'https://api.v2.digipwms.com/api/v2/Pedidos',
-          PATAGONIA_API_KEY_SECRET_ARN: this.apiKeySecret.secretArn,
+          PATAGONIA_API_KEY: patagoniaApiKey,
           CLIENTE_UBICACION_CODIGO: '8436326823',
           PATAGONIA_PEDIDOS_TABLE_NAME: this.patagoniaPedidosTable.tableName,
         },
@@ -223,7 +216,6 @@ export class StockSyncConstruct extends Construct {
       },
     );
 
-    this.apiKeySecret.grantRead(this.patagoniaCreatePedidoFunction);
     this.patagoniaPedidosTable.grantWriteData(this.patagoniaCreatePedidoFunction);
 
     this.tiendanubeOrderPaidWebhookFunction = new NodejsFunction(
@@ -240,7 +232,9 @@ export class StockSyncConstruct extends Construct {
         memorySize: 256,
         depsLockFilePath: path.join(__dirname, '../../package-lock.json'),
         environment: {
-          TIENDANUBE_SECRET_ARN: this.tiendanubeSecret.secretArn,
+          TIENDANUBE_STORE_ID: tiendanubeStoreId,
+          TIENDANUBE_ACCESS_TOKEN: tiendanubeAccessToken,
+          TIENDANUBE_USER_AGENT: tiendanubeUserAgent,
           TIENDANUBE_API_VERSION: '2025-03',
           PATAGONIA_CREATE_PEDIDO_FUNCTION_NAME:
             this.patagoniaCreatePedidoFunction.functionName,
@@ -253,7 +247,6 @@ export class StockSyncConstruct extends Construct {
       },
     );
 
-    this.tiendanubeSecret.grantRead(this.tiendanubeOrderPaidWebhookFunction);
     this.patagoniaCreatePedidoFunction.grantInvoke(
       this.tiendanubeOrderPaidWebhookFunction,
     );
@@ -272,7 +265,9 @@ export class StockSyncConstruct extends Construct {
         memorySize: 256,
         depsLockFilePath: path.join(__dirname, '../../package-lock.json'),
         environment: {
-          TIENDANUBE_SECRET_ARN: this.tiendanubeSecret.secretArn,
+          TIENDANUBE_STORE_ID: tiendanubeStoreId,
+          TIENDANUBE_ACCESS_TOKEN: tiendanubeAccessToken,
+          TIENDANUBE_USER_AGENT: tiendanubeUserAgent,
           TIENDANUBE_API_VERSION: '2025-03',
           PATAGONIA_PEDIDOS_TABLE_NAME: this.patagoniaPedidosTable.tableName,
         },
@@ -284,7 +279,6 @@ export class StockSyncConstruct extends Construct {
       },
     );
 
-    this.tiendanubeSecret.grantRead(this.tiendanubeFulfillmentShipFunction);
     this.patagoniaPedidosTable.grantWriteData(this.tiendanubeFulfillmentShipFunction);
 
     this.digipPedidoCompletoWebhookFunction = new NodejsFunction(
@@ -396,6 +390,131 @@ export class StockSyncConstruct extends Construct {
       targets: [new targets.LambdaFunction(this.stockCleanupFunction)],
     });
 
+    // --- Manual full-stock sync: Step Functions pipeline ---
+    const manualSyncBaseEnv = { STOCK_BUCKET_NAME: this.stockBucket.bucketName };
+    const manualSyncTiendanubeEnv = {
+      TIENDANUBE_STORE_ID: tiendanubeStoreId,
+      TIENDANUBE_ACCESS_TOKEN: tiendanubeAccessToken,
+      TIENDANUBE_USER_AGENT: tiendanubeUserAgent,
+      TIENDANUBE_API_VERSION: '2025-03',
+    };
+
+    const makeManualSyncStep = (
+      id: string,
+      subdir: string,
+      environment: Record<string, string>,
+      timeout: cdk.Duration = cdk.Duration.seconds(60),
+    ): NodejsFunction =>
+      new NodejsFunction(this, id, {
+        entry: path.join(
+          __dirname,
+          `../../src/lambdas/manual-sync/${subdir}/handler.ts`,
+        ),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        timeout,
+        memorySize: 256,
+        depsLockFilePath: path.join(__dirname, '../../package-lock.json'),
+        environment,
+        bundling: { minify: true, sourceMap: true, forceDockerBundling: false },
+      });
+
+    const fetchPatagoniaFn = makeManualSyncStep(
+      'ManualSyncFetchPatagonia',
+      'fetch-patagonia',
+      { ...manualSyncBaseEnv, PATAGONIA_API_URL: patagoniaApiUrl, PATAGONIA_API_KEY: patagoniaApiKey },
+      cdk.Duration.seconds(120),
+    );
+    const fetchTiendanubeFn = makeManualSyncStep(
+      'ManualSyncFetchTiendanube',
+      'fetch-tiendanube',
+      { ...manualSyncBaseEnv, ...manualSyncTiendanubeEnv },
+      cdk.Duration.seconds(600),
+    );
+    const cleanFn = makeManualSyncStep('ManualSyncClean', 'clean', manualSyncBaseEnv);
+    const validateFn = makeManualSyncStep('ManualSyncValidate', 'validate', manualSyncBaseEnv);
+    const buildPatchFn = makeManualSyncStep(
+      'ManualSyncBuildPatch',
+      'build-patch',
+      manualSyncBaseEnv,
+      cdk.Duration.seconds(120),
+    );
+    const sendPatchFn = makeManualSyncStep(
+      'ManualSyncSendPatch',
+      'send-patch',
+      { ...manualSyncBaseEnv, ...manualSyncTiendanubeEnv, SEND_BATCH_CHUNKS: '20' },
+      cdk.Duration.seconds(600),
+    );
+    const finalizeFn = makeManualSyncStep('ManualSyncFinalize', 'finalize-run', manualSyncBaseEnv);
+    const failRunFn = makeManualSyncStep('ManualSyncFailRun', 'fail-run', manualSyncBaseEnv);
+
+    for (const fn of [
+      fetchPatagoniaFn,
+      fetchTiendanubeFn,
+      cleanFn,
+      validateFn,
+      buildPatchFn,
+      sendPatchFn,
+      finalizeFn,
+      failRunFn,
+    ]) {
+      this.stockBucket.grantReadWrite(fn);
+    }
+
+    // Catch target: record the failure on the manifest, then fail the execution.
+    const failRunTask = new tasks.LambdaInvoke(this, 'ManualSyncFailRunTask', {
+      lambdaFunction: failRunFn,
+      payloadResponseOnly: true,
+    });
+    failRunTask.next(
+      new sfn.Fail(this, 'ManualSyncFailed', {
+        error: 'ManualSyncError',
+        cause: 'Manual stock sync run failed',
+      }),
+    );
+
+    const stepWithCatch = (id: string, fn: NodejsFunction): tasks.LambdaInvoke =>
+      new tasks.LambdaInvoke(this, id, {
+        lambdaFunction: fn,
+        payloadResponseOnly: true,
+      }).addCatch(failRunTask, { resultPath: '$.error' }) as tasks.LambdaInvoke;
+
+    const fetchPatagoniaTask = stepWithCatch('ManualSyncFetchPatagoniaTask', fetchPatagoniaFn);
+    const fetchTiendanubeTask = stepWithCatch('ManualSyncFetchTiendanubeTask', fetchTiendanubeFn);
+    const cleanTask = stepWithCatch('ManualSyncCleanTask', cleanFn);
+    const validateTask = stepWithCatch('ManualSyncValidateTask', validateFn);
+    const buildPatchTask = stepWithCatch('ManualSyncBuildPatchTask', buildPatchFn);
+    const sendPatchTask = stepWithCatch('ManualSyncSendPatchTask', sendPatchFn);
+    const finalizeTask = stepWithCatch('ManualSyncFinalizeTask', finalizeFn);
+
+    const waitBeforeNextBatch = new sfn.Wait(this, 'ManualSyncWaitSendBatch', {
+      time: sfn.WaitTime.duration(cdk.Duration.seconds(5)),
+    });
+    const sendDoneChoice = new sfn.Choice(this, 'ManualSyncSendDone?');
+    sendDoneChoice
+      .when(sfn.Condition.booleanEquals('$.sendDone', true), finalizeTask)
+      .otherwise(waitBeforeNextBatch);
+    waitBeforeNextBatch.next(sendPatchTask);
+    sendPatchTask.next(sendDoneChoice);
+
+    const manualSyncDefinition = fetchPatagoniaTask
+      .next(fetchTiendanubeTask)
+      .next(cleanTask)
+      .next(validateTask)
+      .next(buildPatchTask)
+      .next(sendPatchTask);
+
+    this.manualStockSyncStateMachine = new sfn.StateMachine(
+      this,
+      'ManualStockSyncStateMachine',
+      {
+        stateMachineName: 'unibrandco-manual-stock-sync',
+        stateMachineType: sfn.StateMachineType.STANDARD,
+        definitionBody: sfn.DefinitionBody.fromChainable(manualSyncDefinition),
+        timeout: cdk.Duration.hours(2),
+      },
+    );
+
     const authorizer = new apigwv2Authorizers.HttpUserPoolAuthorizer(
       'StockSyncAuthorizer',
       props.userPool,
@@ -431,6 +550,8 @@ export class StockSyncConstruct extends Construct {
         GSI_NAME: 'byCreatedAt',
         PATAGONIA_PEDIDOS_TABLE_NAME: this.patagoniaPedidosTable.tableName,
         PATAGONIA_PEDIDOS_GSI_NAME: 'byCreatedAt',
+        MANUAL_SYNC_STATE_MACHINE_ARN:
+          this.manualStockSyncStateMachine.stateMachineArn,
       },
       bundling: {
         minify: true,
@@ -441,7 +562,9 @@ export class StockSyncConstruct extends Construct {
 
     this.stockChangesTable.grantReadData(this.adminApiFunction);
     this.patagoniaPedidosTable.grantReadData(this.adminApiFunction);
-    this.stockBucket.grantRead(this.adminApiFunction);
+    // Admin API reads snapshots/manifests and writes the initial run manifest.
+    this.stockBucket.grantReadWrite(this.adminApiFunction);
+    this.manualStockSyncStateMachine.grantStartExecution(this.adminApiFunction);
 
     const adminApiIntegration = new apigwv2Integrations.HttpLambdaIntegration(
       'AdminApiIntegration',
@@ -508,6 +631,27 @@ export class StockSyncConstruct extends Construct {
     });
 
     this.httpApi.addRoutes({
+      path: '/admin/manual-sync/trigger',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/manual-sync/runs',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/admin/manual-sync/runs/{runId+}',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: adminApiIntegration,
+      authorizer,
+    });
+
+    this.httpApi.addRoutes({
       path: '/webhooks/tiendanube/order-paid',
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2Integrations.HttpLambdaIntegration(
@@ -540,9 +684,9 @@ export class StockSyncConstruct extends Construct {
       description: 'Admin API base URL (GET routes, Cognito JWT + ADMIN group required)',
     });
 
-    new cdk.CfnOutput(this, 'PatagoniaApiKeySecretArn', {
-      value: this.apiKeySecret.secretArn,
-      description: 'Secrets Manager ARN for Patagonia WMS API key',
+    new cdk.CfnOutput(this, 'ManualStockSyncStateMachineArn', {
+      value: this.manualStockSyncStateMachine.stateMachineArn,
+      description: 'Step Functions state machine for the manual full-stock sync',
     });
 
     new cdk.CfnOutput(this, 'StockChangesTableName', {
@@ -553,11 +697,6 @@ export class StockSyncConstruct extends Construct {
     new cdk.CfnOutput(this, 'PatagoniaPedidosTableName', {
       value: this.patagoniaPedidosTable.tableName,
       description: 'DynamoDB table for Tiendanube orders sent to Patagonia DigipWMS',
-    });
-
-    new cdk.CfnOutput(this, 'TiendanubeSecretArn', {
-      value: this.tiendanubeSecret.secretArn,
-      description: 'Secrets Manager ARN for Tiendanube API credentials',
     });
 
     new cdk.CfnOutput(this, 'TiendanubeOrderPaidWebhookUrl', {

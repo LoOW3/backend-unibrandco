@@ -11,6 +11,15 @@ import type { AdminApiEnv, StockFileDownloadResponse } from './types';
 
 export const PRESIGNED_URL_TTL_SECONDS = 300;
 
+/** Matches a manual-sync run artifact: manual-sync/yyyy/mm/dd/run-N/<file>.json */
+const MANUAL_SYNC_ARTIFACT_PATTERN =
+  /^manual-sync\/\d{4}\/\d{2}\/\d{2}\/run-\d+\/[A-Za-z0-9._-]+\.json$/;
+
+/** True when the key is a downloadable stock snapshot or manual-sync artifact. */
+export function isDownloadableKey(key: string): boolean {
+  return isStockSnapshotKey(key) || MANUAL_SYNC_ARTIFACT_PATTERN.test(key);
+}
+
 export class StockFileDownloadError extends Error {
   constructor(
     readonly statusCode: number,
@@ -31,10 +40,10 @@ export function validateSyncKeyForDownload(syncKey: string | undefined): string 
 
   const decodedSyncKey = decodeURIComponent(syncKey);
 
-  if (!isStockSnapshotKey(decodedSyncKey)) {
+  if (!isDownloadableKey(decodedSyncKey)) {
     throw new StockFileDownloadError(
       400,
-      'Invalid syncKey. Expected yyyy/mm/dd/HHmmss.json',
+      'Invalid syncKey. Expected yyyy/mm/dd/HHmmss.json or manual-sync/yyyy/mm/dd/run-N/<file>.json',
     );
   }
 

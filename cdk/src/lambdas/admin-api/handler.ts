@@ -8,12 +8,22 @@ import {
 import { getPatagoniaPedido } from './get-patagonia-pedido';
 import { resolvePatagoniaPedidoStatus } from '../../shared/resolve-patagonia-pedido-status';
 import type { PatagoniaPedidoRecordResponse } from '../../shared/patagonia-pedidos.types';
+import { getManualSyncRun, ManualSyncRunError } from './get-manual-sync-run';
 import { getStockChange } from './get-stock-change';
 import { jsonResponse } from './http-response';
+import {
+  isValidDateParam as isValidManualSyncDate,
+  listManualSyncRuns,
+} from './list-manual-sync-runs';
 import { isValidDateParam, listStockFiles } from './list-stock-files';
 import { listPatagoniaPedidos } from './list-patagonia-pedidos';
 import { listStockChanges } from './list-stock-changes';
-import { isAuthorizedAdmin, type HttpApiEventWithJwt } from './require-admin';
+import {
+  getClaimsFromEvent,
+  isAuthorizedAdmin,
+  type HttpApiEventWithJwt,
+} from './require-admin';
+import { triggerManualSync } from './trigger-manual-sync';
 import type { AdminApiEnv } from './types';
 
 function getEnv(): AdminApiEnv {
@@ -22,8 +32,16 @@ function getEnv(): AdminApiEnv {
   const gsiName = process.env.GSI_NAME;
   const patagoniaPedidosTableName = process.env.PATAGONIA_PEDIDOS_TABLE_NAME;
   const patagoniaPedidosGsiName = process.env.PATAGONIA_PEDIDOS_GSI_NAME;
+  const manualSyncStateMachineArn = process.env.MANUAL_SYNC_STATE_MACHINE_ARN;
 
-  if (!tableName || !bucketName || !gsiName || !patagoniaPedidosTableName || !patagoniaPedidosGsiName) {
+  if (
+    !tableName ||
+    !bucketName ||
+    !gsiName ||
+    !patagoniaPedidosTableName ||
+    !patagoniaPedidosGsiName ||
+    !manualSyncStateMachineArn
+  ) {
     throw new Error('Missing required environment variables for admin API');
   }
 
@@ -33,7 +51,28 @@ function getEnv(): AdminApiEnv {
     GSI_NAME: gsiName,
     PATAGONIA_PEDIDOS_TABLE_NAME: patagoniaPedidosTableName,
     PATAGONIA_PEDIDOS_GSI_NAME: patagoniaPedidosGsiName,
+    MANUAL_SYNC_STATE_MACHINE_ARN: manualSyncStateMachineArn,
   };
+}
+
+/** Extracts the triggering user's email from JWT claims, if present. */
+function getTriggeredBy(event: HttpApiEventWithJwt): string | null {
+  const claims = getClaimsFromEvent(event);
+  const email = claims?.['email'];
+  return typeof email === 'string' ? email : null;
+}
+
+/** Parses an optional { dryRun } flag from the request body. */
+function parseDryRun(body: string | undefined): boolean {
+  if (!body) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(body) as { dryRun?: unknown };
+    return parsed.dryRun === true;
+  } catch {
+    return false;
+  }
 }
 
 function normalizePath(rawPath: string): string {
@@ -143,6 +182,44 @@ export async function handler(
       };
 
       return jsonResponse(200, response);
+    }
+
+    if (method === 'POST' && path === '/admin/manual-sync/trigger') {
+      const result = await triggerManualSync(env, {
+        triggeredBy: getTriggeredBy(httpEvent),
+        dryRun: parseDryRun(httpEvent.body),
+      });
+      return jsonResponse(202, result);
+    }
+
+    if (method === 'GET' && path === '/admin/manual-sync/runs') {
+      const date = httpEvent.queryStringParameters?.date;
+
+      if (!isValidManualSyncDate(date)) {
+        return jsonResponse(400, {
+          message: 'Invalid or missing date query parameter. Expected YYYY-MM-DD.',
+        });
+      }
+
+      const result = await listManualSyncRuns(env, date);
+      return jsonResponse(200, result);
+    }
+
+    if (method === 'GET' && path.startsWith('/admin/manual-sync/runs/')) {
+      const runIdParam = httpEvent.pathParameters?.runId;
+      const runId = decodeURIComponent(
+        runIdParam ?? path.slice('/admin/manual-sync/runs/'.length),
+      );
+
+      try {
+        const manifest = await getManualSyncRun(env, runId);
+        return jsonResponse(200, manifest);
+      } catch (error) {
+        if (error instanceof ManualSyncRunError) {
+          return jsonResponse(error.statusCode, { message: error.message });
+        }
+        throw error;
+      }
     }
 
     return jsonResponse(404, { message: 'Not found' });

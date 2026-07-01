@@ -5,6 +5,33 @@ export interface AdminApiEnv {
   GSI_NAME: string;
   PATAGONIA_PEDIDOS_TABLE_NAME: string;
   PATAGONIA_PEDIDOS_GSI_NAME: string;
+  MANUAL_SYNC_STATE_MACHINE_ARN: string;
+}
+
+/** Response returned when a manual sync run is triggered. */
+export interface TriggerManualSyncResponse {
+  runId: string;
+  executionArn: string;
+}
+
+/** Summary of a manual sync run (from its manifest) for the runs list. */
+export interface ManualSyncRunSummary {
+  runId: string;
+  status: string;
+  startedAt: string;
+  completedAt: string | null;
+  progress: number;
+  currentStep: string | null;
+  triggeredBy: string | null;
+  dryRun: boolean;
+  counts: Record<string, number | undefined>;
+  error: string | null;
+}
+
+/** Response for listing manual sync runs on a given day. */
+export interface ManualSyncRunsResponse {
+  date: string;
+  runs: ManualSyncRunSummary[];
 }
 
 export interface AdminDashboardResponse {

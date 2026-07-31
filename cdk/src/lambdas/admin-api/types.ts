@@ -7,6 +7,11 @@ export interface AdminApiEnv {
   PATAGONIA_PEDIDOS_GSI_NAME: string;
   MANUAL_SYNC_STATE_MACHINE_ARN: string;
   USER_POOL_ID: string;
+  DB_HOST: string;
+  DB_PORT: string;
+  DB_USER: string;
+  DB_PASS: string;
+  DB_NAME: string;
 }
 
 /** Response returned when a manual sync run is triggered. */

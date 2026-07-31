@@ -574,6 +574,12 @@ export class StockSyncConstruct extends Construct {
         MANUAL_SYNC_STATE_MACHINE_ARN:
           this.manualStockSyncStateMachine.stateMachineArn,
         USER_POOL_ID: props.userPool.userPoolId,
+        // Gold data (Supabase Postgres) — read-only queries for the dashboard.
+        DB_HOST: process.env.DB_HOST ?? 'REPLACE_ME',
+        DB_PORT: process.env.DB_PORT ?? '5432',
+        DB_USER: process.env.DB_USER ?? 'REPLACE_ME',
+        DB_PASS: process.env.DB_PASS ?? 'REPLACE_ME',
+        DB_NAME: process.env.DB_NAME ?? 'postgres',
       },
       bundling: {
         minify: true,
@@ -697,6 +703,21 @@ export class StockSyncConstruct extends Construct {
       integration: adminApiIntegration,
       authorizer,
     });
+
+    // Gold data (dashboard)
+    for (const goldPath of [
+      '/admin/gold/summary',
+      '/admin/gold/ventas',
+      '/admin/gold/clientes',
+      '/admin/gold/fletes',
+    ]) {
+      this.httpApi.addRoutes({
+        path: goldPath,
+        methods: [apigwv2.HttpMethod.GET],
+        integration: adminApiIntegration,
+        authorizer,
+      });
+    }
 
     // User management
     this.httpApi.addRoutes({

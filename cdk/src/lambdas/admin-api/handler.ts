@@ -26,6 +26,7 @@ import {
 } from './require-admin';
 import { ManualSyncConflictError, triggerManualSync } from './trigger-manual-sync';
 import type { AdminApiEnv } from './types';
+import { handleGoldRoutes } from './gold/routes';
 import { handleUsersRoutes } from './users/routes';
 
 function getEnv(): AdminApiEnv {
@@ -36,6 +37,11 @@ function getEnv(): AdminApiEnv {
   const patagoniaPedidosGsiName = process.env.PATAGONIA_PEDIDOS_GSI_NAME;
   const manualSyncStateMachineArn = process.env.MANUAL_SYNC_STATE_MACHINE_ARN;
   const userPoolId = process.env.USER_POOL_ID;
+  const dbHost = process.env.DB_HOST;
+  const dbPort = process.env.DB_PORT;
+  const dbUser = process.env.DB_USER;
+  const dbPass = process.env.DB_PASS;
+  const dbName = process.env.DB_NAME;
 
   if (
     !tableName ||
@@ -44,7 +50,12 @@ function getEnv(): AdminApiEnv {
     !patagoniaPedidosTableName ||
     !patagoniaPedidosGsiName ||
     !manualSyncStateMachineArn ||
-    !userPoolId
+    !userPoolId ||
+    !dbHost ||
+    !dbPort ||
+    !dbUser ||
+    !dbPass ||
+    !dbName
   ) {
     throw new Error('Missing required environment variables for admin API');
   }
@@ -57,6 +68,11 @@ function getEnv(): AdminApiEnv {
     PATAGONIA_PEDIDOS_GSI_NAME: patagoniaPedidosGsiName,
     MANUAL_SYNC_STATE_MACHINE_ARN: manualSyncStateMachineArn,
     USER_POOL_ID: userPoolId,
+    DB_HOST: dbHost,
+    DB_PORT: dbPort,
+    DB_USER: dbUser,
+    DB_PASS: dbPass,
+    DB_NAME: dbName,
   };
 }
 
@@ -259,6 +275,11 @@ export async function handler(
         }
         throw error;
       }
+    }
+
+    const goldResponse = await handleGoldRoutes(env, method, path, httpEvent.queryStringParameters ?? {});
+    if (goldResponse) {
+      return goldResponse;
     }
 
     const usersResponse = await handleUsersRoutes(httpEvent, env, method, path);

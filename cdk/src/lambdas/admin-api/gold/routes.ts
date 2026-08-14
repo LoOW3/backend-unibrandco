@@ -157,15 +157,15 @@ async function goldClientes(env: AdminApiEnv, qs: QueryParams) {
     env,
     `select cliente_id as "clienteId",
             nombre, rubro, provincia, localidad, zona, email,
-            promedio_mensual_3m::float8 as "promedioMensual3m",
-            meses_con_compra_3m::int as "mesesConCompra3m",
-            monto_total_3m::float8 as "montoTotal3m",
-            compra_facturado as "compraFacturado",
-            compra_no_facturado as "compraNoFacturado",
+            ticket_promedio::float8 as "ticketPromedio",
+            cantidad_tickets::int as "cantidadTickets",
+            monto_total::float8 as "montoTotal",
+            compra_0001 as "compraFacturado",
+            compra_0003 as "compraNoFacturado",
             categoria
      from gold.clientes_clasificados
      ${where}
-     order by categoria, monto_total_3m desc nulls last
+     order by categoria, monto_total desc nulls last
      limit $${limitIdx} offset $${offsetIdx}`,
     params,
   );

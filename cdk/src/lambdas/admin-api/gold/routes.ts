@@ -197,10 +197,181 @@ async function goldFletes(env: AdminApiEnv, qs: QueryParams) {
 }
 
 /**
- * Handles /admin/gold/* routes (datos finales limpiados — esquema gold en
- * Postgres/Supabase). Returns null when the path is not a gold route so the
- * main handler continues. ADMIN gating is already enforced by the base handler.
+ * Igual que buildWhere, pero fija dos condiciones siempre presentes para
+ * el tablero "Ventas mayoristas": solo canal Mayorista, y excluye el
+ * vendedor "AGENCIA" (no es un vendedor de planta, distorsiona los KPIs
+ * de rendimiento comercial). Las columnas base no se alias-prefijan
+ * (fact_ventas.columna) para poder reutilizar el mismo WHERE tanto en
+ * queries simples como en las que hacen JOIN con otras tablas.
  */
+function buildWhereVentasMayoristas(filters: Array<[string, string | undefined]>): {
+  where: string;
+  params: unknown[];
+} {
+  const conditions: string[] = ["canal = 'Mayorista'", "coalesce(vendedor, '') <> 'AGENCIA'"];
+  const params: unknown[] = [];
+  for (const [column, value] of filters) {
+    if (value) {
+      params.push(value);
+      conditions.push(`${column} = $${params.length}`);
+    }
+  }
+  return { where: `where ${conditions.join(' and ')}`, params };
+}
+
+async function goldVentasMayoristas(env: AdminApiEnv, qs: QueryParams) {
+  const { where, params } = buildWhereVentasMayoristas([
+    ['vendedor', qs.vendedor],
+    ['empresa', qs.empresa],
+    ['mes_comercial', qs.mes],
+  ]);
+
+  const [totales, top10, porProveedor, margenPorProveedor, porDiaVendedor, flete] = await Promise.all([
+    // Totales + margen ajustado por flete de proveedores (ver tabla
+    // gold.fletes_proveedores_pct_mensual — el % del mes ANTERIOR se resta
+    // del costo de cada línea; si no hay dato cargado para ese proveedor/mes,
+    // coalesce a 0 y no afecta el cálculo).
+    query<{
+      facturacionNeta: number;
+      costoMercaderia: number;
+      unidades: number;
+      margenTotal: number;
+      margenAjustado: number;
+      clientesConCompra: number;
+      cantidadPedidos: number;
+    }>(
+      env,
+      `select coalesce(sum(gold.fact_ventas.precio_neto * gold.fact_ventas.cantidad), 0)::float8 as "facturacionNeta",
+              coalesce(sum(gold.fact_ventas.costo_unitario * gold.fact_ventas.cantidad), 0)::float8 as "costoMercaderia",
+              coalesce(sum(gold.fact_ventas.cantidad), 0)::float8 as "unidades",
+              coalesce(sum(gold.fact_ventas.margen_total), 0)::float8 as "margenTotal",
+              coalesce(
+                sum(gold.fact_ventas.margen_total)
+                  - sum(gold.fact_ventas.costo_unitario * gold.fact_ventas.cantidad * coalesce(fpm.pct_flete, 0)),
+                0
+              )::float8 as "margenAjustado",
+              count(distinct gold.fact_ventas.cliente) as "clientesConCompra",
+              count(distinct gold.fact_ventas.nro_orden) as "cantidadPedidos"
+       from gold.fact_ventas
+       left join gold.fletes_proveedores_pct_mensual fpm
+         on gold.fact_ventas.proveedor = fpm.proveedor
+        and gold.fact_ventas.mes_comercial = fpm.mes_aplicable
+       ${where}`,
+      params,
+    ),
+    // % de facturación concentrado en los 10 clientes más grandes.
+    query<{ totalGeneral: number; totalTop10: number }>(
+      env,
+      `with base as (
+         select gold.fact_ventas.cliente as cliente,
+                sum(gold.fact_ventas.precio_neto * gold.fact_ventas.cantidad) as total
+         from gold.fact_ventas
+         ${where} and gold.fact_ventas.cliente is not null
+         group by gold.fact_ventas.cliente
+       )
+       select coalesce((select sum(total) from base), 0)::float8 as "totalGeneral",
+              coalesce((select sum(total) from (select total from base order by total desc nulls last limit 10) t), 0)::float8 as "totalTop10"`,
+      params,
+    ),
+    // Facturación neta por proveedor (para el gráfico de torta).
+    query<NamedTotal>(
+      env,
+      `select coalesce(gold.fact_ventas.proveedor, '—') as label,
+              coalesce(sum(gold.fact_ventas.precio_neto * gold.fact_ventas.cantidad), 0)::float8 as total
+       from gold.fact_ventas
+       ${where}
+       group by gold.fact_ventas.proveedor
+       order by total desc nulls last
+       limit 12`,
+      params,
+    ),
+    // Margen % por proveedor, ya con el ajuste de flete aplicado (mismo
+    // criterio que "margenAjustado" arriba, pero desglosado por proveedor).
+    // Se excluyen proveedores con menos de 20 unidades vendidas en el
+    // período filtrado, para no mezclar casos de bajo volumen que
+    // distorsionan el % (ver el caso "AGENCIA PROVEEDORES" sin costo real).
+    query<{ label: string; margenPct: number; unidades: number }>(
+      env,
+      `select gold.fact_ventas.proveedor as label,
+              case when sum(gold.fact_ventas.precio_neto * gold.fact_ventas.cantidad) = 0 then 0
+                   else (
+                     sum(gold.fact_ventas.margen_total)
+                       - sum(gold.fact_ventas.costo_unitario * gold.fact_ventas.cantidad * coalesce(fpm.pct_flete, 0))
+                   ) / sum(gold.fact_ventas.precio_neto * gold.fact_ventas.cantidad)
+              end::float8 as "margenPct",
+              coalesce(sum(gold.fact_ventas.cantidad), 0)::float8 as unidades
+       from gold.fact_ventas
+       left join gold.fletes_proveedores_pct_mensual fpm
+         on gold.fact_ventas.proveedor = fpm.proveedor
+        and gold.fact_ventas.mes_comercial = fpm.mes_aplicable
+       ${where} and gold.fact_ventas.proveedor is not null
+       group by gold.fact_ventas.proveedor
+       having sum(gold.fact_ventas.cantidad) >= 20
+       order by "margenPct" desc
+       limit 15`,
+      params,
+    ),
+    // Facturación por día y vendedor (para el gráfico de líneas múltiples).
+    query<{ fecha: string; vendedor: string; total: number }>(
+      env,
+      `select to_char(gold.fact_ventas.fecha, 'YYYY-MM-DD') as fecha,
+              coalesce(gold.fact_ventas.vendedor, '—') as vendedor,
+              coalesce(sum(gold.fact_ventas.precio_neto * gold.fact_ventas.cantidad), 0)::float8 as total
+       from gold.fact_ventas
+       ${where}
+       group by gold.fact_ventas.fecha, gold.fact_ventas.vendedor
+       order by gold.fact_ventas.fecha`,
+      params,
+    ),
+    // Flete real (facturas reales del transportista) vs estimado
+    // (prorrateo cuando todavía no llegó la factura real).
+    query<{ fleteTotalReal: number; fleteEstimadoFiltrado: number }>(
+      env,
+      `select coalesce(sum(fvf.flete_prorrateado) filter (where fvf.tiene_flete_real = true), 0)::float8 as "fleteTotalReal",
+              coalesce(
+                sum(fvf.flete_prorrateado) filter (where coalesce(fvf.tiene_flete_real, false) = false),
+                0
+              )::float8 as "fleteEstimadoFiltrado"
+       from gold.fact_ventas
+       left join gold.fact_ventas_flete fvf
+         on gold.fact_ventas.nro_orden::text = fvf.nro_orden
+        and gold.fact_ventas.sku = fvf.sku
+       ${where}`,
+      params,
+    ),
+  ]);
+
+  const t = totales[0] ?? {
+    facturacionNeta: 0,
+    costoMercaderia: 0,
+    unidades: 0,
+    margenTotal: 0,
+    margenAjustado: 0,
+    clientesConCompra: 0,
+    cantidadPedidos: 0,
+  };
+  const top10Row = top10[0] ?? { totalGeneral: 0, totalTop10: 0 };
+  const fleteRow = flete[0] ?? { fleteTotalReal: 0, fleteEstimadoFiltrado: 0 };
+
+  return {
+    facturacionNeta: t.facturacionNeta,
+    costoMercaderia: t.costoMercaderia,
+    unidades: t.unidades,
+    margenTotal: t.margenTotal,
+    margenAjustado: t.margenAjustado,
+    clientesConCompra: t.clientesConCompra,
+    ticketPromedio: t.cantidadPedidos > 0 ? t.facturacionNeta / t.cantidadPedidos : 0,
+    pctRentabilidadAjustada: t.facturacionNeta > 0 ? t.margenAjustado / t.facturacionNeta : 0,
+    pctFacturacionTop10Clientes: top10Row.totalGeneral > 0 ? top10Row.totalTop10 / top10Row.totalGeneral : 0,
+    fleteTotalReal: fleteRow.fleteTotalReal,
+    fleteEstimadoFiltrado: fleteRow.fleteEstimadoFiltrado,
+    facturacionPorProveedor: porProveedor,
+    margenPctPorProveedor: margenPorProveedor,
+    facturacionPorDiaVendedor: porDiaVendedor,
+  };
+}
+
+
 export async function handleGoldRoutes(
   env: AdminApiEnv,
   method: string,
@@ -217,6 +388,8 @@ export async function handleGoldRoutes(
   switch (path) {
     case '/admin/gold/summary':
       return jsonResponse(200, await goldSummary(env, qs));
+    case '/admin/gold/ventas-mayoristas':
+      return jsonResponse(200, await goldVentasMayoristas(env, qs));
     case '/admin/gold/ventas':
       return jsonResponse(200, await goldVentas(env, qs));
     case '/admin/gold/clientes':
